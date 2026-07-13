@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink-900 text-slate-100 font-sans antialiased;
+  /* Respect iOS safe areas for the fixed bottom nav. */
+  overscroll-behavior-y: none;
+}
+
+/* Hide scrollbars on horizontal week strip while keeping scroll. */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@layer components {
+  .card {
+    @apply bg-ink-800 rounded-card border border-ink-600/60;
+  }
+  .stat-number {
+    @apply font-display font-semibold tabular-nums tracking-tight;
+  }
+  .btn-primary {
+    @apply bg-accent-500 text-white font-medium rounded-xl px-4 py-3 active:bg-accent-600 disabled:opacity-40 transition-colors;
+  }
+  .btn-ghost {
+    @apply bg-ink-700 text-slate-200 font-medium rounded-xl px-4 py-3 active:bg-ink-600 transition-colors;
+  }
+  .input {
+    @apply bg-ink-700 border border-ink-600 rounded-xl px-3 py-3 text-slate-100 placeholder:text-slate-500 focus:border-accent-500 focus:outline-none w-full;
+  }
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
