@@ -1,4 +1,4 @@
-import { db, PROFILE_ID } from './db'
+import { db, PROFILE_ID, getSettings } from './db'
 import type {
   Profile,
   Goal,
@@ -10,14 +10,21 @@ import type {
   Units,
   GoalType,
   Feel,
+  AppSettings,
 } from './types'
 import { uid } from '@/lib/id'
-import { todayISO } from '@/lib/dates'
+import { todayISO, weekDates, weekStartISO, addDays, fromISO } from '@/lib/dates'
 import { vdotFromAssessment, paceZonesFromVdot } from '@/services/zones'
 import { computeHRZones } from '@/services/zones'
 import { generatePlan } from '@/services/planEngine'
 import { generateFromTemplate, getTemplate } from '@/services/planEngine'
-import { findMatch } from '@/services/stats'
+import { findMatch, upsertRecords, evaluateBadges } from '@/services/stats'
+import { coach } from '@/services/coach/RuleBasedCoach'
+import { proposeAdaptation, type AdaptationProposal, type SessionPatch } from '@/services/coach/adapt'
+import { buildWeekSummary, renderRecap } from '@/services/coach/recap'
+import type { RecordKind, Recap, ChatMessage } from './types'
+
+const round1 = (n: number) => Math.round(n * 10) / 10
 
 // Dexie's typed `Table.update` UpdateSpec expands nested key paths, which loops
 // forever on Session.steps (WorkoutStep.repeat is self-referential). Route
@@ -121,6 +128,14 @@ export async function updateProfile(patch: Partial<Profile>): Promise<void> {
   await db.profile.update(PROFILE_ID, { ...patch, updatedAt: Date.now() })
 }
 
+/** Merge a patch into the app settings singleton (theme, coach engine, etc). */
+export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
+  const current = await getSettings()
+  const next = { ...current, ...patch }
+  await db.settings.put(next)
+  return next
+}
+
 /**
  * Rebuild the active plan from the current profile/goal/assessment. Existing
  * plan + its sessions are archived/removed; completed runs are untouched but
@@ -190,11 +205,20 @@ export interface LogRunInput {
   notes?: string
   source?: Run['source']
   attachSessionId?: string // explicit attach; if omitted, auto-match is attempted
+  // Populated by file import (spec §4.3); all optional and stored as-is.
+  splits?: Run['splits']
+  avgHR?: number
+  maxHR?: number
+  elevationGainM?: number
+  track?: string // polyline-encoded
+  rawFileName?: string
 }
 
 export interface LogRunResult {
   run: Run
   matchedSession?: Session
+  newPRs: RecordKind[]
+  newBadges: string[] // badge ids unlocked by this run
 }
 
 export async function logRun(input: LogRunInput): Promise<LogRunResult> {
@@ -208,6 +232,12 @@ export async function logRun(input: LogRunInput): Promise<LogRunResult> {
     feel: input.feel,
     effortRPE: input.effortRPE,
     notes: input.notes,
+    splits: input.splits,
+    avgHR: input.avgHR,
+    maxHR: input.maxHR,
+    elevationGainM: input.elevationGainM,
+    track: input.track,
+    rawFileName: input.rawFileName,
     createdAt: Date.now(),
   }
 
@@ -237,7 +267,13 @@ export async function logRun(input: LogRunInput): Promise<LogRunResult> {
     }
   })
 
-  return { run, matchedSession }
+  // Recompute PRs + badges against the full history (now including this run).
+  const allRuns = await db.runs.toArray()
+  const newPRs = await upsertRecords(allRuns)
+  const records = await db.records.toArray()
+  const badges = await evaluateBadges(allRuns, records)
+
+  return { run, matchedSession, newPRs, newBadges: badges.map((b) => b.id) }
 }
 
 export async function unlinkRun(runId: string): Promise<void> {
@@ -278,4 +314,100 @@ export async function swapSessions(aId: string, bId: string): Promise<void> {
     await patchSession(aId, { date: b.date, dayOfWeek: b.dayOfWeek })
     await patchSession(bId, { date: a.date, dayOfWeek: a.dayOfWeek })
   })
+}
+
+// ---- Coaching layer (spec §2.2, §2.4, §3) ----
+
+/** Sessions (any status) and runs for the calendar week containing `ref`. */
+async function weekData(ref: Date): Promise<{ sessions: Session[]; runs: Run[] }> {
+  const days = weekDates(ref)
+  const [sessions, runs] = await Promise.all([
+    db.sessions.where('date').anyOf(days).toArray(),
+    db.runs.where('date').anyOf(days).toArray(),
+  ])
+  return { sessions, runs }
+}
+
+/**
+ * Generate (once) the recap for the week that just ended. Idempotent per
+ * weekStart. Returns null when there's nothing to recap. Called on first
+ * app-open of a new week.
+ */
+export async function generateWeeklyRecap(): Promise<Recap | null> {
+  const prevWeekStart = weekStartISO(addDays(new Date(), -7))
+  const existing = await db.recaps.where('weekStart').equals(prevWeekStart).first()
+  if (existing) return existing
+
+  const { sessions, runs } = await weekData(fromISO(prevWeekStart))
+  if (!sessions.length && !runs.length) return null
+
+  const summary = buildWeekSummary(prevWeekStart, sessions, runs)
+
+  // Previous-previous week actual mileage, for the week-on-week comparison.
+  const prevPrev = await weekData(addDays(fromISO(prevWeekStart), -7))
+  const prevActualKm = round1(prevPrev.runs.reduce((s, r) => s + r.distanceKm, 0))
+
+  // Focus line = the adaptation the engine would suggest for the current week.
+  const current = await weekData(new Date())
+  const upcoming = current.sessions.filter((s) => s.status === 'upcoming')
+  const proposal = proposeAdaptation({
+    lastWeekSessions: sessions,
+    upcomingSessions: upcoming,
+    recentRuns: runs,
+  })
+
+  const recapText = renderRecap(summary, { prevActualKm, focus: proposal?.adjustment.summary })
+  const recap: Recap = { id: uid(), weekStart: prevWeekStart, summary, recapText, engine: 'rule' }
+  await db.recaps.put(recap)
+  return recap
+}
+
+/** Propose an adaptation to the current week based on last week's outcome. */
+export async function proposeActivePlanAdjustment(): Promise<AdaptationProposal | null> {
+  const lastWeek = await weekData(addDays(new Date(), -7))
+  const current = await weekData(new Date())
+  const upcoming = current.sessions.filter((s) => s.status === 'upcoming')
+  return proposeAdaptation({
+    lastWeekSessions: lastWeek.sessions,
+    upcomingSessions: upcoming,
+    recentRuns: lastWeek.runs,
+  })
+}
+
+export async function applyPlanAdjustment(proposal: AdaptationProposal): Promise<void> {
+  await db.transaction('rw', db.sessions, db.plans, async () => {
+    for (const c of proposal.changes) await patchSession(c.id, c.patch)
+    const active = await db.plans.where('status').equals('active').first()
+    if (active) await db.plans.update(active.id, { lastAdaptedAt: Date.now() })
+  })
+}
+
+export async function undoPlanAdjustment(snapshot: SessionPatch[]): Promise<void> {
+  await db.transaction('rw', db.sessions, async () => {
+    for (const s of snapshot) await patchSession(s.id, s.patch)
+  })
+}
+
+/** Persist a user chat message, generate the coach reply, and persist that too. */
+export async function sendChatMessage(text: string): Promise<void> {
+  const trimmed = text.trim()
+  if (!trimmed) return
+  const now = Date.now()
+  const userMsg: ChatMessage = { id: uid(), role: 'user', text: trimmed, createdAt: now }
+  await db.chatMessages.put(userMsg)
+
+  const [history, profile, current, recentRuns] = await Promise.all([
+    db.chatMessages.orderBy('createdAt').toArray(),
+    db.profile.get(PROFILE_ID),
+    weekData(new Date()),
+    db.runs.orderBy('date').reverse().limit(5).toArray(),
+  ])
+
+  const reply = await coach.chat(history, {
+    profile,
+    currentWeek: current.sessions,
+    recentRuns,
+  })
+  const coachMsg: ChatMessage = { id: uid(), role: 'coach', text: reply, createdAt: Date.now() }
+  await db.chatMessages.put(coachMsg)
 }

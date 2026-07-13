@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="PaceKeeper sample"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
+  <trk>
+    <name>Morning easy loop</name>
+    <trkseg>
+      <trkpt lat="51.500000" lon="-0.120000">
+        <ele>10.0</ele>
+        <time>2026-07-13T06:00:00Z</time>
+        <extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>128</gpxtpx:hr></gpxtpx:TrackPointExtension></extensions>
+      </trkpt>
+      <trkpt lat="51.503000" lon="-0.120000">
+        <ele>12.0</ele>
+        <time>2026-07-13T06:02:00Z</time>
+        <extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>134</gpxtpx:hr></gpxtpx:TrackPointExtension></extensions>
+      </trkpt>
+      <trkpt lat="51.506000" lon="-0.120000">
+        <ele>16.0</ele>
+        <time>2026-07-13T06:04:05Z</time>
+        <extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>140</gpxtpx:hr></gpxtpx:TrackPointExtension></extensions>
+      </trkpt>
+      <trkpt lat="51.509000" lon="-0.120000">
+        <ele>14.0</ele>
+        <time>2026-07-13T06:06:10Z</time>
+        <extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>145</gpxtpx:hr></gpxtpx:TrackPointExtension></extensions>
+      </trkpt>
+      <trkpt lat="51.512000" lon="-0.120000">
+        <ele>18.0</ele>
+        <time>2026-07-13T06:08:20Z</time>
+        <extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>149</gpxtpx:hr></gpxtpx:TrackPointExtension></extensions>
+      </trkpt>
+      <trkpt lat="51.515000" lon="-0.120000">
+        <ele>20.0</ele>
+        <time>2026-07-13T06:10:30Z</time>
+        <extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>152</gpxtpx:hr></gpxtpx:TrackPointExtension></extensions>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

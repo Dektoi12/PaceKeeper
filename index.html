@@ -11,6 +11,16 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>PaceKeeper</title>
+    <script>
+      // Apply the saved theme before paint to avoid a flash.
+      try {
+        var t = localStorage.getItem('pk-theme')
+        if (t === 'light' || t === 'dark') {
+          document.documentElement.classList.remove('dark', 'light')
+          document.documentElement.classList.add(t)
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

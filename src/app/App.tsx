@@ -1,6 +1,8 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, PROFILE_ID } from '@/services/db'
+import { useSettings } from './hooks'
 import { ToastProvider } from '@/components/Toast'
 import { AppLayout } from './AppLayout'
 import { TodayScreen } from '@/screens/Today/TodayScreen'
@@ -15,9 +17,24 @@ import { RunDetailScreen } from '@/screens/Stats/RunDetailScreen'
 
 export default function App() {
   const location = useLocation()
-  // undefined = still loading; null = no profile (needs onboarding)
-  const profile = useLiveQuery(() => db.profile.get(PROFILE_ID), [])
-  const onboarded = profile !== undefined ? profile !== null : undefined
+  // 'loading' sentinel distinguishes "query in flight" from "resolved to no row"
+  // (Dexie's get() returns undefined for a missing key, same as the loading value).
+  const profile = useLiveQuery(() => db.profile.get(PROFILE_ID), [], 'loading' as const)
+  const onboarded = profile === 'loading' ? undefined : profile != null
+
+  // Apply the theme (and mirror to localStorage for the anti-flash script).
+  const settings = useSettings()
+  useEffect(() => {
+    const theme = settings?.theme ?? 'dark'
+    const el = document.documentElement
+    el.classList.remove('dark', 'light')
+    el.classList.add(theme)
+    try {
+      localStorage.setItem('pk-theme', theme)
+    } catch {
+      /* private mode — ignore */
+    }
+  }, [settings?.theme])
 
   if (onboarded === undefined) {
     return (

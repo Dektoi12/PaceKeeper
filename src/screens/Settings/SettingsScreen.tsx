@@ -1,13 +1,22 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   updateProfile,
+  updateSettings,
   regenerateActivePlan,
   resetAllData,
+  exportAll,
+  importAll,
+  backupFilename,
 } from '@/services/db'
+import {
+  requestNotificationPermission,
+  notificationsSupported,
+} from '@/services/notifications'
 import type { Units } from '@/services/db/types'
-import { useProfile, useLatestAssessment } from '@/app/hooks'
+import { useProfile, useLatestAssessment, useSettings } from '@/app/hooks'
 import { useToast } from '@/components/Toast'
+import { formatLongDate } from '@/lib/dates'
 import { ScreenHeader, Card, SectionTitle } from '@/components/ui'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -16,9 +25,11 @@ export function SettingsScreen() {
   const navigate = useNavigate()
   const profile = useProfile()
   const assessment = useLatestAssessment()
+  const settings = useSettings()
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
+  const importRef = useRef<HTMLInputElement>(null)
 
   if (!profile) return <div className="p-6 text-slate-500">Loading…</div>
   const hr = assessment?.derivedHRZones
@@ -52,6 +63,51 @@ export function SettingsScreen() {
   async function reset() {
     await resetAllData()
     navigate('/onboarding', { replace: true })
+  }
+
+  async function exportBackup() {
+    setBusy(true)
+    try {
+      const blob = await exportAll()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = backupFilename()
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.show('Backup downloaded', 'success')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function importBackup(file: File | undefined) {
+    if (!file) return
+    setBusy(true)
+    try {
+      await importAll(await file.text())
+      toast.show('Data restored', 'success')
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : 'Import failed')
+    } finally {
+      setBusy(false)
+      if (importRef.current) importRef.current.value = ''
+    }
+  }
+
+  async function toggleNotifications() {
+    if (settings?.notificationsEnabled) {
+      await updateSettings({ notificationsEnabled: false })
+      toast.show('Reminders off')
+      return
+    }
+    const perm = await requestNotificationPermission()
+    if (perm !== 'granted') {
+      toast.show('Notifications are blocked in your browser settings')
+      return
+    }
+    await updateSettings({ notificationsEnabled: true })
+    toast.show('Reminders on', 'success')
   }
 
   return (
@@ -127,12 +183,77 @@ export function SettingsScreen() {
           </>
         )}
 
-        <SectionTitle>Data & reminders</SectionTitle>
-        <Card>
+        <SectionTitle>Data & backup</SectionTitle>
+        <Card className="flex flex-col gap-3">
           <p className="text-sm text-slate-400">
-            JSON backup/restore and reminders arrive in a later build. Your data is stored on-device (IndexedDB) with persistent storage requested.
+            Your data lives on-device (IndexedDB). Export a JSON backup to keep it safe or move to another device.
+          </p>
+          <input
+            ref={importRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => importBackup(e.target.files?.[0] ?? undefined)}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <button className="btn-primary" onClick={exportBackup} disabled={busy}>
+              Export backup
+            </button>
+            <button className="btn-ghost" onClick={() => importRef.current?.click()} disabled={busy}>
+              Import backup
+            </button>
+          </div>
+          <p className="text-xs text-slate-500">
+            {settings?.lastBackupAt
+              ? `Last backup: ${formatLongDate(new Date(settings.lastBackupAt).toISOString().slice(0, 10))}`
+              : 'No backup yet — a monthly reminder will nudge you.'}
           </p>
         </Card>
+
+        <SectionTitle>Appearance</SectionTitle>
+        <div className="grid grid-flow-col auto-cols-fr gap-1 bg-ink-700 p-1 rounded-xl">
+          {(['dark', 'light'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => updateSettings({ theme: t })}
+              className={`py-2 rounded-lg text-sm font-medium capitalize ${
+                (settings?.theme ?? 'dark') === t ? 'bg-accent-500 text-white' : 'text-slate-400'
+              }`}
+            >
+              {t === 'dark' ? '🌙 Dark' : '☀️ Light'}
+            </button>
+          ))}
+        </div>
+
+        <SectionTitle>Reminders</SectionTitle>
+        <Card className="flex items-center justify-between">
+          <div className="pr-3">
+            <p className="text-sm text-slate-200 font-medium">Run reminders</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {notificationsSupported()
+                ? 'Get a nudge for the day’s run while the app is open. Background reminders depend on your device.'
+                : 'Your browser doesn’t support notifications — reminders show in-app instead.'}
+            </p>
+          </div>
+          <Toggle on={!!settings?.notificationsEnabled} onClick={toggleNotifications} disabled={!notificationsSupported()} />
+        </Card>
+
+        <SectionTitle>Coach engine</SectionTitle>
+        <div className="grid grid-flow-col auto-cols-fr gap-1 bg-ink-700 p-1 rounded-xl">
+          {(['rule', 'ai'] as const).map((e) => (
+            <button
+              key={e}
+              onClick={() =>
+                e === 'ai' ? toast.show('AI coach arrives in a later build') : updateSettings({ coachEngine: e })
+              }
+              className={`py-2 rounded-lg text-sm font-medium ${
+                (settings?.coachEngine ?? 'rule') === e ? 'bg-accent-500 text-white' : 'text-slate-400'
+              }`}
+            >
+              {e === 'rule' ? 'Rule-based' : 'AI (soon)'}
+            </button>
+          ))}
+        </div>
 
         <SectionTitle>Danger zone</SectionTitle>
         {!confirmReset ? (
@@ -167,5 +288,23 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-slate-400">{label}</span>
       <span className="text-slate-100 font-medium capitalize">{value}</span>
     </div>
+  )
+}
+
+function Toggle({ on, onClick, disabled }: { on: boolean; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      role="switch"
+      aria-checked={on}
+      className={`shrink-0 w-12 h-7 rounded-full transition-colors disabled:opacity-40 ${
+        on ? 'bg-accent-500' : 'bg-ink-600'
+      }`}
+    >
+      <span
+        className={`block w-5 h-5 bg-white rounded-full transition-transform mx-1 ${on ? 'translate-x-5' : ''}`}
+      />
+    </button>
   )
 }

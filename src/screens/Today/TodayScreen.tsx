@@ -1,10 +1,12 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '@/services/db'
+import { db, generateWeeklyRecap } from '@/services/db'
 import { SESSION_META } from '@/services/planEngine'
 import { todayISO, weekDates, formatLongDate, formatDayLabel, isToday } from '@/lib/dates'
 import { formatDistance } from '@/lib/formatters'
-import { useProfile, useUnits } from '@/app/hooks'
+import { useProfile, useUnits, useSettings } from '@/app/hooks'
+import { showReminder, sessionReminderText } from '@/services/notifications'
 import { ScreenHeader, Card, StatNumber, SectionTitle, EmptyState } from '@/components/ui'
 import { SessionTypeBadge } from '@/components/SessionTypeBadge'
 import { ZoneChip } from '@/components/ZoneChip'
@@ -14,6 +16,7 @@ export function TodayScreen() {
   const navigate = useNavigate()
   const profile = useProfile()
   const units = useUnits()
+  const settings = useSettings()
   const today = todayISO()
   const week = weekDates(new Date())
 
@@ -28,9 +31,35 @@ export function TodayScreen() {
     return all.filter((s) => s.type !== 'rest').slice(0, 3)
   }, [today])
 
+  // Generate the previous week's recap on first open of a new week (idempotent).
+  const latestRecap = useLiveQuery(async () => {
+    const all = await db.recaps.orderBy('weekStart').toArray()
+    return all[all.length - 1]
+  }, [])
+  const [recapDismissed, setRecapDismissed] = useState(false)
+  useEffect(() => {
+    generateWeeklyRecap()
+  }, [])
+
   const primary =
     todaySessions?.find((s) => s.type !== 'rest' && s.status !== 'completed') ??
     todaySessions?.[0]
+
+  // Best-effort "today's run" reminder — once per day, only while the app is
+  // open (background delivery isn't reliable across platforms; see notifications).
+  useEffect(() => {
+    if (!settings?.notificationsEnabled || !primary) return
+    if (primary.type === 'rest' || primary.status === 'completed') return
+    const key = `pk-notified-${today}`
+    try {
+      if (localStorage.getItem(key)) return
+      localStorage.setItem(key, '1')
+    } catch {
+      return
+    }
+    const { title, body } = sessionReminderText(primary, units, 'today')
+    showReminder(title, body)
+  }, [settings?.notificationsEnabled, primary?.id, today, units])
 
   const actualKm = (weekRuns ?? []).reduce((sum, r) => sum + r.distanceKm, 0)
   const plannedKm = (weekSessions ?? []).reduce((sum, s) => sum + (s.plannedDistanceKm ?? 0), 0)
@@ -59,6 +88,30 @@ export function TodayScreen() {
           <StatNumber value={formatDistance(plannedKm, units, 0).split(' ')[0]} label={`${units} planned`} />
         </Card>
       </div>
+
+      {/* Weekly recap */}
+      {latestRecap && !recapDismissed && (
+        <div className="px-4 mt-3">
+          <Card className="border-l-4 border-accent-500" onClick={() => navigate('/coach')}>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-xs text-accent-400 font-semibold uppercase tracking-wide">Weekly recap</p>
+                <p className="text-sm text-slate-300 mt-1 line-clamp-3">{latestRecap.recapText}</p>
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setRecapDismissed(true)
+                }}
+                className="text-slate-500 text-lg leading-none"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Today's session hero */}
       <div className="px-4">

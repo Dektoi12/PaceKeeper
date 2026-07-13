@@ -1,8 +1,16 @@
-# Remaining phases — implementation notes
+# Phases — implementation notes
 
-Phases 0–3 are built. This is a working guide for finishing Phases 4–7 (and LATER) on your own machine. It points at the scaffolding already in place so each phase is additive, not a rewrite. The original spec is [../running-app-plan.md](../running-app-plan.md).
+**Status: Phases 0–7 are built.** Phases 4–7 were implemented additively on the
+existing scaffolding (no Dexie migration). Only **Phase LATER (Claude
+integration)** remains — see the bottom of this file. The original spec is
+[../running-app-plan.md](../running-app-plan.md).
 
-The data model already has every field these phases need — see `src/services/db/types.ts`. No Dexie migration should be required for 4–6.
+The notes below document how each phase plugs in. Pure logic is covered by
+Node harnesses in [`../scripts`](../scripts): `verify-import.mjs` (polyline +
+split/elevation derivation), `verify-parsers.mjs` (GPX/TCX against the fixtures —
+needs `npm i --no-save linkedom`), `verify-stats.mjs` (PRs/predictor/streaks/
+trends + DB persistence via `fake-indexeddb`), and `verify-coach.mjs` (recap/
+adapt/FAQ + backup round-trip). Keep `npm run typecheck` green.
 
 ---
 

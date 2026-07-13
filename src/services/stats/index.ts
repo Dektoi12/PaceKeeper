@@ -1,1 +1,6 @@
 export * from './matching'
+export * from './prs'
+export * from './streaks'
+export * from './trends'
+export * from './predictor'
+export * from './badges'

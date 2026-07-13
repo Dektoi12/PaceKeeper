@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 
 interface Toast {
   id: number
@@ -29,18 +30,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider value={{ show }}>
       {children}
       <div className="fixed left-0 right-0 bottom-24 z-50 flex flex-col items-center gap-2 px-4 pointer-events-none">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={`max-w-sm w-full text-sm font-medium px-4 py-3 rounded-xl shadow-lg border ${
-              t.tone === 'success'
-                ? 'bg-session-easy/20 border-session-easy/40 text-session-easy'
-                : 'bg-ink-700 border-ink-600 text-slate-100'
-            }`}
-          >
-            {t.message}
-          </div>
-        ))}
+        <AnimatePresence initial={false}>
+          {toasts.map((t) => (
+            <motion.div
+              key={t.id}
+              layout
+              initial={{ opacity: 0, y: 16, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 32 }}
+              className={`max-w-sm w-full text-sm font-medium px-4 py-3 rounded-xl shadow-lg border ${
+                t.tone === 'success'
+                  ? 'bg-session-easy/20 border-session-easy/40 text-session-easy'
+                  : 'bg-ink-700 border-ink-600 text-slate-100'
+              }`}
+            >
+              {t.message}
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
     </Ctx.Provider>
   )

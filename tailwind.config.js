@@ -5,13 +5,26 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Near-black surfaces (spec §6.7)
+        // Surfaces + text are CSS-variable-backed so a single class (e.g.
+        // bg-ink-900, text-slate-100) resolves per theme (see index.css).
         ink: {
-          900: '#0B0E11',
-          800: '#12161B',
-          700: '#1A1F26',
-          600: '#232A33',
-          500: '#2E3742',
+          900: 'rgb(var(--ink-900) / <alpha-value>)',
+          800: 'rgb(var(--ink-800) / <alpha-value>)',
+          700: 'rgb(var(--ink-700) / <alpha-value>)',
+          600: 'rgb(var(--ink-600) / <alpha-value>)',
+          500: 'rgb(var(--ink-500) / <alpha-value>)',
+        },
+        slate: {
+          50: 'rgb(var(--slate-50) / <alpha-value>)',
+          100: 'rgb(var(--slate-100) / <alpha-value>)',
+          200: 'rgb(var(--slate-200) / <alpha-value>)',
+          300: 'rgb(var(--slate-300) / <alpha-value>)',
+          400: 'rgb(var(--slate-400) / <alpha-value>)',
+          500: 'rgb(var(--slate-500) / <alpha-value>)',
+          600: 'rgb(var(--slate-600) / <alpha-value>)',
+          700: 'rgb(var(--slate-700) / <alpha-value>)',
+          800: 'rgb(var(--slate-800) / <alpha-value>)',
+          900: 'rgb(var(--slate-900) / <alpha-value>)',
         },
         // Electric blue accent
         accent: {

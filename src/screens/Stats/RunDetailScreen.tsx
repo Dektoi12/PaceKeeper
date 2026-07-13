@@ -1,14 +1,21 @@
+import { lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, unlinkRun, deleteRun } from '@/services/db'
 import { compareToTarget } from '@/services/stats'
 import { formatLongDate } from '@/lib/dates'
 import { formatDistance, formatDuration, formatPace } from '@/lib/formatters'
+import { decode as decodePolyline } from '@/lib/polyline'
 import { useUnits } from '@/app/hooks'
 import { useToast } from '@/components/Toast'
 import { Card, StatNumber } from '@/components/ui'
 import { SessionTypeBadge } from '@/components/SessionTypeBadge'
 import { feelEmoji } from '@/components/FeelPicker'
+
+// Heavy, GPS-only views — code-split so the Leaflet + Recharts bundles never
+// load for manual runs.
+const RouteMap = lazy(() => import('./RouteMap'))
+const ElevationChart = lazy(() => import('./ElevationChart'))
 
 export function RunDetailScreen() {
   const { id } = useParams()
@@ -26,6 +33,8 @@ export function RunDetailScreen() {
   if (run === null) return <div className="p-6 text-slate-500">Run not found.</div>
 
   const comparison = session ? compareToTarget(run, session) : null
+  const track = run.track ? decodePolyline(run.track) : []
+  const hasGeo = track.length >= 2
 
   async function onUnlink() {
     await unlinkRun(run!.id)
@@ -55,6 +64,31 @@ export function RunDetailScreen() {
         <StatNumber value={feelEmoji(run.feel)} label="feel" />
         {run.effortRPE != null && <StatNumber value={run.effortRPE} label="RPE" />}
       </Card>
+
+      {(run.avgHR != null || run.elevationGainM != null) && (
+        <Card className="mt-4 flex justify-around">
+          {run.avgHR != null && <StatNumber value={run.avgHR} label="avg HR" />}
+          {run.maxHR != null && <StatNumber value={run.maxHR} label="max HR" />}
+          {run.elevationGainM != null && <StatNumber value={`${run.elevationGainM} m`} label="elev gain" />}
+        </Card>
+      )}
+
+      {hasGeo && (
+        <Card className="mt-4">
+          <p className="text-sm text-slate-400 font-semibold mb-2">Route</p>
+          <Suspense fallback={<div className="h-56 rounded-card bg-ink-700 animate-pulse" />}>
+            <RouteMap track={track} />
+          </Suspense>
+          {track.some((p) => typeof p.ele === 'number') && (
+            <div className="mt-3">
+              <p className="text-sm text-slate-400 font-semibold mb-2">Elevation</p>
+              <Suspense fallback={<div className="h-40 rounded-card bg-ink-700 animate-pulse" />}>
+                <ElevationChart track={track} />
+              </Suspense>
+            </div>
+          )}
+        </Card>
+      )}
 
       {session && (
         <Card className="mt-4">
@@ -91,21 +125,32 @@ export function RunDetailScreen() {
 
       {run.splits && run.splits.length > 0 && (
         <Card className="mt-4">
-          <p className="text-sm text-slate-400 font-semibold mb-2">Splits</p>
+          <div className="flex justify-between text-xs text-slate-500 font-semibold mb-2">
+            <span>Split</span>
+            <span className="flex gap-6">
+              <span>Pace</span>
+              {run.splits.some((s) => s.avgHR != null) && <span className="w-10 text-right">HR</span>}
+            </span>
+          </div>
           <div className="flex flex-col gap-1">
             {run.splits.map((sp) => (
               <div key={sp.index} className="flex justify-between text-sm">
                 <span className="text-slate-500">{sp.index}</span>
-                <span className="text-slate-200">{formatPace(sp.paceSecPerKm, units)}</span>
+                <span className="flex gap-6">
+                  <span className="text-slate-200">{formatPace(sp.paceSecPerKm, units)}</span>
+                  {run.splits!.some((s) => s.avgHR != null) && (
+                    <span className="w-10 text-right text-slate-400">{sp.avgHR ?? '—'}</span>
+                  )}
+                </span>
               </div>
             ))}
           </div>
         </Card>
       )}
 
-      {!run.matchedSessionId && (
+      {run.source !== 'manual' && !hasGeo && (
         <p className="text-xs text-slate-600 mt-4 text-center">
-          Route maps and elevation appear here for imported GPS files (next build).
+          This file had no GPS track — totals and splits are shown above.
         </p>
       )}
 

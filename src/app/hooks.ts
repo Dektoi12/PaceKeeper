@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, PROFILE_ID } from '@/services/db'
+import { db, PROFILE_ID, SETTINGS_ID } from '@/services/db'
 import type { Units } from '@/services/db/types'
 
 export function useProfile() {
@@ -31,4 +31,9 @@ export function useLatestAssessment() {
     const all = await db.assessments.orderBy('date').toArray()
     return all[all.length - 1]
   }, [])
+}
+
+/** App settings singleton (read-only; seeded once at startup in main.tsx). */
+export function useSettings() {
+  return useLiveQuery(() => db.settings.get(SETTINGS_ID), [])
 }
