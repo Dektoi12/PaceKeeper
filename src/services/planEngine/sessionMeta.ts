@@ -44,18 +44,6 @@ export const SESSION_META: Record<SessionType, SessionMeta> = {
     icon: '🛣️',
     why: 'The long run is the cornerstone of endurance — it builds fatigue resistance, fat metabolism, and mental durability. Keep it easy and steady.',
   },
-  strength: {
-    label: 'Strength',
-    color: '#8B95A5',
-    icon: '💪',
-    why: 'Runner-specific strength work reduces injury risk and improves economy. Focus on control and full range of motion over speed.',
-  },
-  mobility: {
-    label: 'Mobility',
-    color: '#4CC9C0',
-    icon: '🧘',
-    why: 'Mobility work keeps hips, ankles, and thoracic spine supple so you move efficiently and recover well between hard sessions.',
-  },
   rest: {
     label: 'Rest',
     color: '#5B6470',

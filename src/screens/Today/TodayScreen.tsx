@@ -83,9 +83,9 @@ export function TodayScreen() {
       {/* Quick stats strip */}
       <div className="px-4">
         <Card className="flex justify-between">
-          <StatNumber value={formatDistance(actualKm, units, 1).split(' ')[0]} label={`${units} this week`} accent />
+          <StatNumber value={formatDistance(actualKm, units, 1)} label="this week" accent />
           <StatNumber value={`${doneCount}/${runnableCount}`} label="sessions done" />
-          <StatNumber value={formatDistance(plannedKm, units, 0).split(' ')[0]} label={`${units} planned`} />
+          <StatNumber value={formatDistance(plannedKm, units, 0)} label="planned" />
         </Card>
       </div>
 

@@ -69,18 +69,27 @@ export function StatsScreen() {
 
       <div className="px-4">
         <Card className="flex justify-between">
-          <StatNumber value={formatDistance(totalKm, units, 0).split(' ')[0]} label={`${units} lifetime`} accent />
+          <StatNumber value={formatDistance(totalKm, units, 0)} label="lifetime" accent />
           <StatNumber value={totalRuns} label="runs" />
-          <StatNumber value={formatDistance(longest, units, 1).split(' ')[0]} label="longest" />
+          <StatNumber value={formatDistance(longest, units, 1)} label="longest" />
         </Card>
 
         {totalRuns > 0 && (
           <>
-            <SectionTitle>Personal records</SectionTitle>
+            <SectionTitle
+              action={
+                <button onClick={() => navigate('/records/edit')} className="text-accent-400 text-sm font-medium">
+                  Edit
+                </button>
+              }
+            >
+              Personal records
+            </SectionTitle>
             {recordByKind.size === 0 ? (
               <Card>
                 <p className="text-sm text-slate-400">
-                  Keep logging runs — PRs unlock automatically as you hit standard distances.
+                  Keep logging runs — PRs unlock automatically as you hit standard distances. Or tap
+                  Edit to add a personal best.
                 </p>
               </Card>
             ) : (

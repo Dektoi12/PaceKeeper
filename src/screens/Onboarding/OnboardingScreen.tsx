@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Experience, Units, GoalType, Assessment } from '@/services/db/types'
 import { completeOnboarding, type OnboardingData } from '@/services/db'
-import { parseDurationInput } from '@/lib/formatters'
 import { TEMPLATES } from '@/services/planEngine'
+import { DurationPicker } from '@/components/DurationPicker'
 
 interface WizardState {
   name: string
@@ -14,10 +14,10 @@ interface WizardState {
   goalType: GoalType
   templateId?: string
   targetDate: string
-  targetTime: string
+  targetTimeSec: number
   assessmentMethod: Assessment['method']
   distanceKm: string
-  time: string
+  timeSec: number
   weeklyKm: string
   longestRecentKm: string
   maxHR: string
@@ -33,10 +33,10 @@ const initial: WizardState = {
   experience: 'intermediate',
   goalType: '10k',
   targetDate: '',
-  targetTime: '',
+  targetTimeSec: 0,
   assessmentMethod: 'recentRace',
   distanceKm: '5',
-  time: '',
+  timeSec: 0,
   weeklyKm: '',
   longestRecentKm: '',
   maxHR: '',
@@ -87,7 +87,7 @@ export function OnboardingScreen() {
       case 4:
         if (s.templateId) return true
         if (s.assessmentMethod === 'recentRace')
-          return Number(s.distanceKm) > 0 && parseDurationInput(s.time) != null
+          return Number(s.distanceKm) > 0 && s.timeSec > 0
         if (s.assessmentMethod === 'weeklyMileage') return Number(s.weeklyKm) > 0
         return true // benchmarkRun needs nothing now
       case 5:
@@ -111,11 +111,10 @@ export function OnboardingScreen() {
         preferredRunDays: [...s.runDays].sort((a, b) => a - b),
         goalType: s.goalType,
         targetDate: !isFitness && s.targetDate ? s.targetDate : undefined,
-        targetTimeSec: !isFitness && s.targetTime ? parseDurationInput(s.targetTime) ?? undefined : undefined,
+        targetTimeSec: !isFitness && s.targetTimeSec ? s.targetTimeSec : undefined,
         assessmentMethod: s.assessmentMethod,
         distanceKm: s.assessmentMethod === 'recentRace' ? Number(s.distanceKm) : undefined,
-        timeSec:
-          s.assessmentMethod === 'recentRace' ? parseDurationInput(s.time) ?? undefined : undefined,
+        timeSec: s.assessmentMethod === 'recentRace' ? s.timeSec || undefined : undefined,
         weeklyKm: s.assessmentMethod === 'weeklyMileage' ? Number(s.weeklyKm) : undefined,
         longestRecentKm:
           s.assessmentMethod === 'weeklyMileage' && s.longestRecentKm
@@ -238,8 +237,8 @@ export function OnboardingScreen() {
                 <Field label="Race date (optional)">
                   <input type="date" className="input" value={s.targetDate} onChange={(e) => set('targetDate', e.target.value)} />
                 </Field>
-                <Field label="Target time (optional, e.g. 50:00)">
-                  <input className="input" value={s.targetTime} onChange={(e) => set('targetTime', e.target.value)} placeholder="mm:ss or h:mm:ss" />
+                <Field label="Target time (optional)">
+                  <DurationPicker seconds={s.targetTimeSec} onChange={(v) => set('targetTimeSec', v)} />
                 </Field>
                 {s.templateId && (
                   <p className="text-xs text-slate-500 mt-2">
@@ -266,12 +265,12 @@ export function OnboardingScreen() {
             </Field>
 
             {s.assessmentMethod === 'recentRace' && (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-3">
                 <Field label={`Distance (${s.units})`}>
                   <input className="input" inputMode="decimal" value={s.distanceKm} onChange={(e) => set('distanceKm', e.target.value)} />
                 </Field>
-                <Field label="Time (mm:ss)">
-                  <input className="input" value={s.time} onChange={(e) => set('time', e.target.value)} placeholder="25:30" />
+                <Field label="Time">
+                  <DurationPicker seconds={s.timeSec} onChange={(v) => set('timeSec', v)} />
                 </Field>
               </div>
             )}

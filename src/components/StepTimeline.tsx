@@ -19,8 +19,6 @@ function stepLabel(step: WorkoutStep, units: Units): { title: string; detail?: s
     }
     case 'recover':
       return { title: 'Recover', detail: `${step.durationMin} min ${step.mode}` }
-    case 'exercise':
-      return { title: step.name, detail: `${step.sets} × ${step.reps}` }
     case 'repeat':
       return { title: `Repeat ${step.times}×`, detail: undefined }
   }

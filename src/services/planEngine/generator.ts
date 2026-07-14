@@ -14,7 +14,6 @@ import type {
 import { uid } from '@/lib/id'
 import { weekStart, addDays, toISO, todayISO, daysBetween } from '@/lib/dates'
 import { paceZonesFromAssessment } from '@/services/zones'
-import { strengthSteps, MOBILITY } from './exercises'
 import { SESSION_META } from './sessionMeta'
 
 // ---- Goal-level constants ----
@@ -41,6 +40,14 @@ const START_VOLUME: Record<Profile['experience'], number> = {
   beginner: 15,
   intermediate: 28,
   advanced: 42,
+}
+
+// When a peak weekly mileage is known, this is how close to it each level
+// starts — fitter runners begin nearer their peak and ramp less.
+const START_FRACTION: Record<Profile['experience'], number> = {
+  beginner: 0.5,
+  intermediate: 0.6,
+  advanced: 0.7,
 }
 
 type Phase = 'base' | 'build' | 'peak' | 'taper'
@@ -72,7 +79,12 @@ export function generatePlan(input: GenerateInput): GeneratedPlan {
   const planEnd = addDays(planStart, weeks * 7 - 1)
 
   const planId = uid()
-  const volumes = weeklyVolumes(weeks, resolveStartVolume(profile, assessment), isFitness)
+  const volumes = weeklyVolumes(
+    weeks,
+    resolveStartVolume(profile, assessment),
+    resolvePeakVolume(profile, assessment),
+    isFitness,
+  )
 
   const sessions: Session[] = []
 
@@ -93,13 +105,6 @@ export function generatePlan(input: GenerateInput): GeneratedPlan {
     const easyCount = roles.filter((r) => r === 'easy').length
     const easyPool = Math.max(weekly - longKm - qualityKm * qualityCount, easyCount * 3)
     const easyKm = round1(easyPool / Math.max(easyCount, 1))
-
-    const nonRunWeekdays = mondayFirstOrder([0, 1, 2, 3, 4, 5, 6]).filter(
-      (d) => !runDays.includes(d),
-    )
-    const strengthDay = nonRunWeekdays[0]
-    const mobilityDay =
-      nonRunWeekdays.length > 1 ? nonRunWeekdays[nonRunWeekdays.length - 1] : undefined
 
     let qualitySlot = 0
     let easySlot = 0
@@ -128,10 +133,6 @@ export function generatePlan(input: GenerateInput): GeneratedPlan {
             distanceKm: easyKm,
           })
         }
-      } else if (dow === strengthDay) {
-        session = buildStrengthSession(iso, weekNumber, dow, planId, weekNumber % 2 === 0 ? 'B' : 'A')
-      } else if (dow === mobilityDay) {
-        session = buildMobilitySession(iso, weekNumber, dow, planId)
       } else {
         session = buildRestSession(iso, weekNumber, dow, planId)
       }
@@ -193,16 +194,27 @@ function phaseOf(weekNumber: number, weeks: number, isFitness: boolean): Phase {
 }
 
 function resolveStartVolume(profile: Profile, assessment: Assessment): number {
-  if (assessment.method === 'weeklyMileage' && assessment.weeklyKm) {
-    return Math.max(10, assessment.weeklyKm)
+  // A known weekly mileage is the PEAK target (Settings → Training baseline).
+  // Start below it, scaled by fitness level, so the full figure is only reached
+  // on peak weeks rather than in week 1.
+  if (assessment.weeklyKm && assessment.weeklyKm > 0) {
+    return Math.max(10, round1(assessment.weeklyKm * START_FRACTION[profile.experience]))
   }
   return START_VOLUME[profile.experience]
 }
 
-/** Weekly volumes with +8%/wk build, −25% cutback every 4th week, taper down. */
-function weeklyVolumes(weeks: number, start: number, isFitness: boolean): number[] {
+/** Peak weekly volume the ramp builds toward. A set weekly-mileage baseline is
+ *  that target; otherwise derive a peak from the experience-based start. */
+function resolvePeakVolume(profile: Profile, assessment: Assessment): number {
+  if (assessment.weeklyKm && assessment.weeklyKm > 0) return assessment.weeklyKm
+  return START_VOLUME[profile.experience] * 2.2
+}
+
+/** Weekly volumes with +8%/wk build, −25% cutback every 4th week, taper down.
+ *  Ramps from `start` up to `peak` (the cap), which is only reached on peak weeks. */
+function weeklyVolumes(weeks: number, start: number, peak: number, isFitness: boolean): number[] {
   const growth = 1.08
-  const cap = start * 2.2
+  const cap = Math.max(peak, start) // never ramp below the opening week
   const vols: number[] = []
   let running = start
   let lastFull = start
@@ -412,32 +424,6 @@ function buildQualitySession(
     targetPaceRange: pace,
     targetZone: zone,
     plannedDistanceKm: round1(planned),
-  }
-}
-
-function buildStrengthSession(
-  iso: string,
-  weekNumber: number,
-  dow: number,
-  planId: string,
-  variant: 'A' | 'B',
-): Session {
-  return {
-    ...base(iso, weekNumber, dow, planId, 'strength'),
-    title: `Runner's strength ${variant}`,
-    description: SESSION_META.strength.why,
-    steps: strengthSteps(variant),
-    plannedDurationMin: 25,
-  }
-}
-
-function buildMobilitySession(iso: string, weekNumber: number, dow: number, planId: string): Session {
-  return {
-    ...base(iso, weekNumber, dow, planId, 'mobility'),
-    title: 'Mobility routine',
-    description: SESSION_META.mobility.why,
-    steps: MOBILITY,
-    plannedDurationMin: 15,
   }
 }
 

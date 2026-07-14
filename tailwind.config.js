@@ -43,8 +43,6 @@ export default {
           hills: '#B368E5',
           fartlek: '#F06595',
           long: '#2E8BFF',
-          strength: '#8B95A5',
-          mobility: '#4CC9C0',
           rest: '#5B6470',
         },
       },

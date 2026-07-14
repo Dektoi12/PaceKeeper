@@ -14,15 +14,15 @@ import type {
 } from './types'
 import { uid } from '@/lib/id'
 import { todayISO, weekDates, weekStartISO, addDays, fromISO } from '@/lib/dates'
-import { vdotFromAssessment, paceZonesFromVdot } from '@/services/zones'
+import { vdotFromAssessment, vdotFromRace, paceZonesFromVdot } from '@/services/zones'
 import { computeHRZones } from '@/services/zones'
 import { generatePlan } from '@/services/planEngine'
-import { generateFromTemplate, getTemplate } from '@/services/planEngine'
+import { generateFromTemplate, getTemplate, SESSION_META } from '@/services/planEngine'
 import { findMatch, upsertRecords, evaluateBadges } from '@/services/stats'
 import { coach } from '@/services/coach/RuleBasedCoach'
 import { proposeAdaptation, type AdaptationProposal, type SessionPatch } from '@/services/coach/adapt'
 import { buildWeekSummary, renderRecap } from '@/services/coach/recap'
-import type { RecordKind, Recap, ChatMessage } from './types'
+import type { PRRecord, RecordKind, Recap, ChatMessage } from './types'
 
 const round1 = (n: number) => Math.round(n * 10) / 10
 
@@ -128,6 +128,74 @@ export async function updateProfile(patch: Partial<Profile>): Promise<void> {
   await db.profile.update(PROFILE_ID, { ...patch, updatedAt: Date.now() })
 }
 
+/**
+ * One-time cleanup for the removed strength/mobility feature. Older plans may
+ * still hold non-running sessions on-device whose type is no longer valid;
+ * convert them to rest days so they render correctly. No-op once none remain.
+ * Runs at startup (main.tsx).
+ */
+export async function migrateRemoveStrengthSessions(): Promise<number> {
+  let count = 0
+  await db.sessions
+    // Cast: 'strength'/'mobility' are no longer in SessionType, but legacy rows can still carry them.
+    .filter((s) => (s.type as string) === 'strength' || (s.type as string) === 'mobility')
+    .modify((s) => {
+      s.type = 'rest'
+      s.title = 'Rest day'
+      s.description = SESSION_META.rest.why
+      s.steps = []
+      s.plannedDistanceKm = undefined
+      s.plannedDurationMin = undefined
+      s.targetPaceRange = undefined
+      s.targetZone = undefined
+      count++
+    })
+  return count
+}
+
+/**
+ * Update profile fields and, when the HR inputs (age / max HR / resting HR)
+ * change, recompute the HR zones stored on the latest assessment so the
+ * reference zones shown around the app stay in sync. Used by the profile
+ * editor. Pace zones are unaffected — they derive from the fitness
+ * assessment, not from these fields.
+ */
+export async function updateProfileAndZones(patch: Partial<Profile>): Promise<void> {
+  await db.transaction('rw', db.profile, db.assessments, async () => {
+    const current = await db.profile.get(PROFILE_ID)
+    if (!current) return
+    const next: Profile = { ...current, ...patch, updatedAt: Date.now() }
+    await db.profile.put(next)
+
+    const assessments = await db.assessments.orderBy('date').toArray()
+    const latest = assessments[assessments.length - 1]
+    if (latest) {
+      const zones = computeHRZones(next.age, next.maxHR, next.restingHR)
+      await db.assessments.update(latest.id, { derivedHRZones: zones })
+    }
+  })
+}
+
+/**
+ * Update the weekly-mileage baseline on the latest assessment. This figure is
+ * the plan's PEAK weekly volume — the plan starts lower (scaled to fitness
+ * level) and builds up to it. Regenerate the active plan afterward to apply it.
+ * Training paces (VDOT/pace zones) are intentionally left as-is.
+ */
+export async function updateWeeklyMileage(input: {
+  weeklyKm: number
+  longestRecentKm?: number
+}): Promise<boolean> {
+  const assessments = await db.assessments.orderBy('date').toArray()
+  const latest = assessments[assessments.length - 1]
+  if (!latest) return false
+  await db.assessments.update(latest.id, {
+    weeklyKm: input.weeklyKm,
+    longestRecentKm: input.longestRecentKm,
+  })
+  return true
+}
+
 /** Merge a patch into the app settings singleton (theme, coach engine, etc). */
 export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
   const current = await getSettings()
@@ -192,6 +260,74 @@ export async function resetAllData(): Promise<void> {
       ])
     },
   )
+}
+
+// ---- Personal records (spec §5) ----
+
+// Race-distance records whose value (normalized time) reflects fitness and can
+// drive training paces. The rest (longest run, biggest week, streak) don't.
+const RECORD_RACE_KM: Partial<Record<RecordKind, number>> = {
+  fastest5k: 5,
+  fastest10k: 10,
+  fastestHalf: 21.0975,
+  fastestFull: 42.195,
+}
+
+/**
+ * Set or override a personal record by hand. The value is stored as a manual
+ * record (sticky — auto-tracking won't overwrite it unless a real run beats it).
+ * For a race-distance PB this also re-derives VDOT + pace zones from the effort
+ * and regenerates the active plan, so training paces track your fitness.
+ * Returns whether the plan was regenerated.
+ */
+export async function setPersonalRecord(
+  kind: RecordKind,
+  value: number,
+): Promise<{ planRegenerated: boolean }> {
+  await db.transaction('rw', db.records, async () => {
+    const existing = await db.records.where('kind').equals(kind).first()
+    const record: PRRecord = {
+      id: existing?.id ?? uid(),
+      kind,
+      value,
+      runId: undefined, // manual entry isn't tied to a logged run
+      achievedAt: Date.now(),
+      manual: true,
+    }
+    await db.records.put(record)
+  })
+
+  const km = RECORD_RACE_KM[kind]
+  if (km && value > 0 && (await applyFitnessFromRace(km, value))) {
+    const res = await regenerateActivePlan()
+    return { planRegenerated: res != null }
+  }
+  return { planRegenerated: false }
+}
+
+/** Remove a record. A run-derived record will simply recompute on your next
+ *  log; a manual override is cleared for good. */
+export async function clearPersonalRecord(kind: RecordKind): Promise<void> {
+  const existing = await db.records.where('kind').equals(kind).first()
+  if (existing) await db.records.delete(existing.id)
+}
+
+/** Re-derive VDOT + pace zones from a race effort onto the latest assessment,
+ *  preserving the weekly-mileage baseline. Returns false if none exists yet. */
+async function applyFitnessFromRace(distanceKm: number, timeSec: number): Promise<boolean> {
+  const assessments = await db.assessments.orderBy('date').toArray()
+  const latest = assessments[assessments.length - 1]
+  if (!latest) return false
+  const vdot = vdotFromRace(distanceKm, timeSec)
+  if (vdot <= 0) return false
+  await db.assessments.update(latest.id, {
+    method: 'recentRace',
+    distanceKm,
+    timeSec,
+    derivedVdot: Math.round(vdot * 10) / 10,
+    derivedPaceZones: paceZonesFromVdot(vdot),
+  })
+  return true
 }
 
 // ---- Run logging (spec §4.2, §4.5) ----

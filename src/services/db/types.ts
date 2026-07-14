@@ -14,8 +14,6 @@ export type SessionType =
   | 'hills'
   | 'fartlek'
   | 'long'
-  | 'strength'
-  | 'mobility'
   | 'rest'
 
 export type SessionStatus = 'upcoming' | 'completed' | 'skipped' | 'moved'
@@ -67,7 +65,6 @@ export type WorkoutStep =
     }
   | { kind: 'recover'; durationMin: number; mode: 'jog' | 'walk' | 'rest' }
   | { kind: 'repeat'; times: number; steps: WorkoutStep[] }
-  | { kind: 'exercise'; name: string; sets: number; reps: string } // strength/mobility
 
 export interface Split {
   index: number // 1-based km or mi
@@ -189,6 +186,7 @@ export interface PRRecord {
   value: number
   runId?: string
   achievedAt: number
+  manual?: boolean // set/overridden by the user rather than derived from a run
 }
 
 export interface Achievement {

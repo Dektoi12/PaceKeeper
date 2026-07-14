@@ -40,17 +40,12 @@ export function SessionDetailScreen() {
 
   const meta = SESSION_META[session.type]
   const isRunnable = RUNNABLE.includes(session.type)
-  const isChecklist = session.type === 'strength' || session.type === 'mobility'
 
   const adjacentToLong = (weekSiblings ?? []).some((s) => s.type === 'long')
 
   async function skip() {
     await setSessionStatus(session!.id, 'skipped')
     toast.show('Session skipped')
-  }
-  async function markDone() {
-    await setSessionStatus(session!.id, 'completed')
-    toast.show('Marked complete', 'success')
   }
   async function doMove(newDate: string) {
     await moveSession(session!.id, newDate)
@@ -95,7 +90,7 @@ export function SessionDetailScreen() {
       {session.steps.length > 0 && (
         <Card className="mt-4">
           <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-2">
-            {isChecklist ? 'Exercises' : 'Workout'}
+            Workout
           </h2>
           <StepTimeline steps={session.steps} units={units} />
         </Card>
@@ -119,11 +114,6 @@ export function SessionDetailScreen() {
               onClick={() => navigate('/log', { state: { sessionId: session.id } })}
             >
               Log this run
-            </button>
-          )}
-          {isChecklist && (
-            <button className="btn-primary" onClick={markDone}>
-              Mark complete
             </button>
           )}
 

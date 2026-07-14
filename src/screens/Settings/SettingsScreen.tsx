@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   updateProfile,
   updateSettings,
+  updateWeeklyMileage,
   regenerateActivePlan,
   resetAllData,
   exportAll,
@@ -14,10 +15,13 @@ import {
   notificationsSupported,
 } from '@/services/notifications'
 import type { Units } from '@/services/db/types'
+import { kmToUnit, unitToKm, unitLabel } from '@/lib/formatters'
 import { useProfile, useLatestAssessment, useSettings } from '@/app/hooks'
 import { useToast } from '@/components/Toast'
 import { formatLongDate } from '@/lib/dates'
 import { ScreenHeader, Card, SectionTitle } from '@/components/ui'
+
+const round1 = (n: number) => Math.round(n * 10) / 10
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -48,6 +52,14 @@ export function SettingsScreen() {
       return
     }
     await updateProfile({ preferredRunDays: days })
+  }
+
+  async function saveWeeklyMileage(weeklyKm: number, longestRecentKm?: number) {
+    const ok = await updateWeeklyMileage({ weeklyKm, longestRecentKm })
+    toast.show(
+      ok ? 'Weekly mileage saved — regenerate to apply' : 'Complete onboarding first',
+      ok ? 'success' : 'default',
+    )
   }
 
   async function regenerate() {
@@ -122,11 +134,22 @@ export function SettingsScreen() {
       />
 
       <div className="px-4">
-        <SectionTitle>Profile</SectionTitle>
+        <SectionTitle
+          action={
+            <button onClick={() => navigate('/profile/edit')} className="text-accent-400 text-sm font-medium">
+              Edit
+            </button>
+          }
+        >
+          Profile
+        </SectionTitle>
         <Card className="flex flex-col gap-3">
           <Row label="Name" value={profile.name} />
           <Row label="Age" value={String(profile.age)} />
           <Row label="Experience" value={profile.experience} />
+          {profile.weightKg != null && <Row label="Weight" value={`${profile.weightKg} kg`} />}
+          <Row label="Max HR" value={profile.maxHR != null ? `${profile.maxHR} bpm` : 'Estimated'} />
+          <Row label="Resting HR" value={profile.restingHR != null ? `${profile.restingHR} bpm` : 'Not set'} />
         </Card>
 
         <SectionTitle>Units</SectionTitle>
@@ -164,9 +187,25 @@ export function SettingsScreen() {
           {busy ? 'Regenerating…' : 'Regenerate plan from current settings'}
         </button>
 
+        <SectionTitle>Training baseline</SectionTitle>
+        <TrainingBaselineCard
+          weeklyKm={assessment?.weeklyKm}
+          longestRecentKm={assessment?.longestRecentKm}
+          units={profile.units}
+          onSave={saveWeeklyMileage}
+        />
+
         {hr && (
           <>
-            <SectionTitle>HR zones (reference)</SectionTitle>
+            <SectionTitle
+              action={
+                <button onClick={() => navigate('/profile/edit')} className="text-accent-400 text-sm font-medium">
+                  Edit
+                </button>
+              }
+            >
+              HR zones (reference)
+            </SectionTitle>
             <Card className="flex flex-col gap-1.5">
               <p className="text-xs text-slate-500 mb-1">
                 Max HR {hr.maxHR} · {hr.method === 'karvonen' ? 'Karvonen (with resting HR)' : 'estimated'}
@@ -182,6 +221,15 @@ export function SettingsScreen() {
             </Card>
           </>
         )}
+
+        <SectionTitle>Tools</SectionTitle>
+        <Card onClick={() => navigate('/tools/pace')} className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-slate-200 font-medium">Pace calculator</p>
+            <p className="text-xs text-slate-500 mt-0.5">Work out pace, time, or distance from the other two.</p>
+          </div>
+          <span className="text-slate-500 text-lg">›</span>
+        </Card>
 
         <SectionTitle>Data & backup</SectionTitle>
         <Card className="flex flex-col gap-3">
@@ -279,6 +327,64 @@ export function SettingsScreen() {
         <p className="text-center text-xs text-slate-600 mt-6 pb-4">PaceKeeper · v0.1 · local-first</p>
       </div>
     </div>
+  )
+}
+
+function TrainingBaselineCard({
+  weeklyKm,
+  longestRecentKm,
+  units,
+  onSave,
+}: {
+  weeklyKm?: number
+  longestRecentKm?: number
+  units: Units
+  onSave: (weeklyKm: number, longestRecentKm?: number) => Promise<void>
+}) {
+  const [weekly, setWeekly] = useState('')
+  const [longest, setLongest] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  // Seed from the stored baseline, re-seeding when it changes (e.g. after save).
+  useEffect(() => {
+    setWeekly(weeklyKm != null ? String(round1(kmToUnit(weeklyKm, units))) : '')
+    setLongest(longestRecentKm != null ? String(round1(kmToUnit(longestRecentKm, units))) : '')
+  }, [weeklyKm, longestRecentKm, units])
+
+  const weeklyNum = Number(weekly)
+  const canSave = weekly.trim() !== '' && weeklyNum > 0 && !saving
+  const u = unitLabel(units)
+
+  async function save() {
+    setSaving(true)
+    try {
+      await onSave(unitToKm(weeklyNum, units), longest ? unitToKm(Number(longest), units) : undefined)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <p className="text-sm text-slate-400">
+        Your peak weekly volume. The plan starts lower — scaled to your experience level — and builds
+        up to this on peak weeks. Update it, then regenerate your plan above to apply. Training paces
+        stay the same.
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm text-slate-400">Peak weekly ({u})</span>
+          <input className="input" inputMode="decimal" value={weekly} onChange={(e) => setWeekly(e.target.value)} placeholder="30" />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm text-slate-400">Longest recent ({u})</span>
+          <input className="input" inputMode="decimal" value={longest} onChange={(e) => setLongest(e.target.value)} placeholder="12" />
+        </label>
+      </div>
+      <button className="btn-ghost" disabled={!canSave} onClick={save}>
+        {saving ? 'Saving…' : 'Save weekly mileage'}
+      </button>
+    </Card>
   )
 }
 

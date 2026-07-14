@@ -14,7 +14,7 @@ Phases **0–3** are built and working — the full **onboard → plan → run �
 |---|---|---|
 | 0 · Foundation | Vite/React/TS/Tailwind, Dexie schema (all tables), PWA shell, bottom-nav | ✅ Done |
 | 1 · Onboarding + plans | 7-step wizard, VDOT pace/HR zones, rule plan generator, templates | ✅ Done |
-| 2 · Plan surfaces | Today card, week/month calendar, session detail timeline, move/swap/skip, strength/mobility | ✅ Done |
+| 2 · Plan surfaces | Today card, week/month calendar, session detail timeline, move/swap/skip | ✅ Done |
 | 3 · Logging | Manual entry, session matching (±25%), run history, run detail w/ vs-target | ✅ Done |
 | 4 · File import | GPX/TCX/FIT import, route map, elevation, splits, polyline compression | ⬜ Next |
 | 5 · Stats & motivation | PR engine, charts, race predictor, badges/streaks | ⬜ |

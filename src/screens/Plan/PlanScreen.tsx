@@ -211,6 +211,6 @@ function WeekNav({
 }
 
 function sortSession(a: Session, b: Session): number {
-  const order = (t: string) => (t === 'rest' ? 2 : t === 'strength' || t === 'mobility' ? 1 : 0)
+  const order = (t: string) => (t === 'rest' ? 1 : 0)
   return order(a.type) - order(b.type)
 }

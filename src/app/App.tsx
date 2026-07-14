@@ -14,6 +14,9 @@ import { OnboardingScreen } from '@/screens/Onboarding/OnboardingScreen'
 import { SettingsScreen } from '@/screens/Settings/SettingsScreen'
 import { SessionDetailScreen } from '@/screens/Plan/SessionDetailScreen'
 import { RunDetailScreen } from '@/screens/Stats/RunDetailScreen'
+import { PaceCalculatorScreen } from '@/screens/Tools/PaceCalculatorScreen'
+import { EditProfileScreen } from '@/screens/Profile/EditProfileScreen'
+import { EditRecordsScreen } from '@/screens/Stats/EditRecordsScreen'
 
 export default function App() {
   const location = useLocation()
@@ -60,6 +63,9 @@ export default function App() {
           <Route path="/stats" element={<StatsScreen />} />
           <Route path="/coach" element={<CoachScreen />} />
           <Route path="/settings" element={<SettingsScreen />} />
+          <Route path="/tools/pace" element={<PaceCalculatorScreen />} />
+          <Route path="/profile/edit" element={<EditProfileScreen />} />
+          <Route path="/records/edit" element={<EditRecordsScreen />} />
           <Route path="/session/:id" element={<SessionDetailScreen />} />
           <Route path="/run/:id" element={<RunDetailScreen />} />
         </Route>

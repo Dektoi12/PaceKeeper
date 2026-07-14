@@ -4,7 +4,6 @@ import { db, logRun } from '@/services/db'
 import type { Feel, Run, Session } from '@/services/db/types'
 import { todayISO, formatLongDate } from '@/lib/dates'
 import {
-  parseDurationInput,
   formatPace,
   formatDistance,
   formatDuration,
@@ -20,6 +19,7 @@ import { useUnits } from '@/app/hooks'
 import { useToast } from '@/components/Toast'
 import { ScreenHeader, Card } from '@/components/ui'
 import { FeelPicker } from '@/components/FeelPicker'
+import { DurationPicker } from '@/components/DurationPicker'
 import { SESSION_META } from '@/services/planEngine'
 
 export function LogScreen() {
@@ -31,7 +31,7 @@ export function LogScreen() {
 
   const [date, setDate] = useState(todayISO())
   const [distance, setDistance] = useState('')
-  const [duration, setDuration] = useState('')
+  const [durationSec, setDurationSec] = useState(0)
   const [feel, setFeel] = useState<Feel | undefined>()
   const [rpe, setRpe] = useState('')
   const [notes, setNotes] = useState('')
@@ -58,14 +58,14 @@ export function LogScreen() {
   }, [prefillSessionId, units])
 
   const distKm = distance ? unitToKm(Number(distance), units) : 0
-  const durSec = parseDurationInput(duration)
+  const durSec = durationSec
   const paceLabel =
-    distKm > 0 && durSec ? formatPace(durSec / distKm, units) : '—'
+    distKm > 0 && durSec > 0 ? formatPace(durSec / distKm, units) : '—'
 
-  const canSave = distKm > 0 && durSec != null && durSec > 0
+  const canSave = distKm > 0 && durSec > 0
 
   async function save() {
-    if (!canSave || durSec == null) return
+    if (!canSave) return
     setSaving(true)
     try {
       const result = await logRun({
@@ -274,15 +274,14 @@ export function LogScreen() {
               <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
             </label>
 
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1.5">
-                <span className="text-sm text-slate-400">Distance ({unitLabel(units)})</span>
-                <input className="input" inputMode="decimal" value={distance} onChange={(e) => setDistance(e.target.value)} placeholder="6.4" />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-sm text-slate-400">Duration</span>
-                <input className="input" value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="35:20" />
-              </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm text-slate-400">Distance ({unitLabel(units)})</span>
+              <input className="input" inputMode="decimal" value={distance} onChange={(e) => setDistance(e.target.value)} placeholder="6.4" />
+            </label>
+
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm text-slate-400">Duration</span>
+              <DurationPicker seconds={durationSec} onChange={setDurationSec} />
             </div>
 
             <Card className="flex items-center justify-between">
