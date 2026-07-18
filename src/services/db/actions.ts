@@ -6,18 +6,21 @@ import type {
   Run,
   Session,
   SessionStatus,
+  SessionType,
   Experience,
   Units,
   GoalType,
   Feel,
   AppSettings,
+  StrengthPreferences,
 } from './types'
 import { uid } from '@/lib/id'
 import { todayISO, weekDates, weekStartISO, addDays, fromISO } from '@/lib/dates'
 import { vdotFromAssessment, paceZonesFromVdot } from '@/services/zones'
 import { computeHRZones } from '@/services/zones'
 import { generatePlan } from '@/services/planEngine'
-import { generateFromTemplate, getTemplate } from '@/services/planEngine'
+import { generateFromTemplate, getTemplate, SESSION_META } from '@/services/planEngine'
+import { strengthEngine, type DaySlot, type RunIntensity, type StrengthPlacement } from '@/services/strength'
 import { findMatch, upsertRecords, evaluateBadges } from '@/services/stats'
 import { coach } from '@/services/coach/RuleBasedCoach'
 import { proposeAdaptation, type AdaptationProposal, type SessionPatch } from '@/services/coach/adapt'
@@ -100,10 +103,11 @@ export async function completeOnboarding(data: OnboardingData): Promise<{ planId
   assessment.derivedPaceZones = paceZonesFromVdot(vdot)
   assessment.derivedHRZones = computeHRZones(data.age, data.maxHR, data.restingHR)
 
+  const strength = (await getSettings()).strength
   const template = data.templateId ? getTemplate(data.templateId) : undefined
   const generated = template
-    ? generateFromTemplate(template, profile, goal, assessment)
-    : generatePlan({ profile, goal, assessment })
+    ? generateFromTemplate(template, profile, goal, assessment, strength)
+    : generatePlan({ profile, goal, assessment, strength })
 
   await db.transaction(
     'rw',
@@ -150,10 +154,11 @@ export async function regenerateActivePlan(): Promise<{ planId: string } | null>
   if (!profile || !goal || !assessment) return null
 
   const activePlans = await db.plans.where('status').equals('active').toArray()
+  const strength = (await getSettings()).strength
   const template = activePlans[0]?.templateId ? getTemplate(activePlans[0].templateId) : undefined
   const generated = template
-    ? generateFromTemplate(template, profile, goal, assessment)
-    : generatePlan({ profile, goal, assessment })
+    ? generateFromTemplate(template, profile, goal, assessment, strength)
+    : generatePlan({ profile, goal, assessment, strength })
 
   await db.transaction('rw', db.plans, db.sessions, db.runs, async () => {
     for (const p of activePlans) {
@@ -170,6 +175,109 @@ export async function regenerateActivePlan(): Promise<{ planId: string } | null>
   })
 
   return { planId: generated.plan.id }
+}
+
+// ---- Strength preferences (STRENGTH_FEATURE_PLAN.md §9.6) ----
+
+const RUNNABLE_TYPES = new Set<SessionType>(['easy', 'tempo', 'intervals', 'hills', 'fartlek', 'long'])
+const HARD_RUN_TYPES = new Set<SessionType>(['tempo', 'intervals', 'hills', 'fartlek'])
+
+function runIntensityOf(type: SessionType): RunIntensity | undefined {
+  if (type === 'long') return 'long'
+  if (type === 'easy') return 'easy'
+  if (HARD_RUN_TYPES.has(type)) return 'hard'
+  return undefined
+}
+
+function placementToSession(p: StrengthPlacement, weekNumber: number, planId: string): Session {
+  return {
+    id: uid(),
+    planId,
+    date: p.date,
+    weekNumber,
+    dayOfWeek: fromISO(p.date).getDay(),
+    type: p.sessionType,
+    title: p.title,
+    description: SESSION_META[p.sessionType].why,
+    steps: p.steps,
+    plannedDurationMin: p.durationMin,
+    status: 'upcoming',
+    strength: { templateId: p.templateId, kind: p.kind, runInterference: p.runInterference },
+  }
+}
+
+function restSession(date: string, weekNumber: number, planId: string): Session {
+  return {
+    id: uid(),
+    planId,
+    date,
+    weekNumber,
+    dayOfWeek: fromISO(date).getDay(),
+    type: 'rest',
+    title: 'Rest day',
+    description: SESSION_META.rest.why,
+    steps: [],
+    status: 'upcoming',
+  }
+}
+
+/**
+ * Persist strength preferences and re-slot strength/mobility work for FUTURE
+ * days only (date >= today, still upcoming). Runs, past sessions, and anything
+ * already completed/skipped are left untouched. Disabling clears future strength
+ * days back to rest while keeping all history.
+ */
+export async function applyStrengthPreferences(prefs: StrengthPreferences): Promise<void> {
+  const updated: StrengthPreferences = { ...prefs, updatedAt: Date.now() }
+  const settings = await updateSettings({ strength: updated })
+  const strength = settings.strength
+  const plan = await db.plans.where('status').equals('active').first()
+  if (!plan || !strength) return
+
+  const today = todayISO()
+  const all = await db.sessions.where('planId').equals(plan.id).toArray()
+
+  const byWeek = new Map<number, Session[]>()
+  for (const s of all) {
+    const arr = byWeek.get(s.weekNumber) ?? []
+    arr.push(s)
+    byWeek.set(s.weekNumber, arr)
+  }
+
+  const toDelete: string[] = []
+  const toInsert: Session[] = []
+
+  for (const [weekNumber, weekSessions] of byWeek) {
+    // Reschedulable = upcoming, non-run, today-or-later open days.
+    const reschedulable = weekSessions.filter(
+      (s) => s.date >= today && s.status === 'upcoming' && !RUNNABLE_TYPES.has(s.type),
+    )
+    if (reschedulable.length === 0) continue
+
+    const ordered = [...weekSessions].sort((a, b) => a.date.localeCompare(b.date))
+    const days: DaySlot[] = ordered.map((s) => ({ date: s.date, run: runIntensityOf(s.type) }))
+
+    const placementByDate = new Map<string, StrengthPlacement>()
+    if (strength.enabled) {
+      const scheduled = strengthEngine.scheduleWeek({ weekNumber, days, prefs: strength })
+      for (const p of scheduled.placements) placementByDate.set(p.date, p)
+    }
+
+    for (const s of reschedulable) {
+      toDelete.push(s.id)
+      const placement = placementByDate.get(s.date)
+      toInsert.push(
+        placement
+          ? placementToSession(placement, weekNumber, plan.id)
+          : restSession(s.date, weekNumber, plan.id),
+      )
+    }
+  }
+
+  await db.transaction('rw', db.sessions, async () => {
+    if (toDelete.length) await db.sessions.bulkDelete(toDelete)
+    if (toInsert.length) await db.sessions.bulkPut(toInsert)
+  })
 }
 
 export async function resetAllData(): Promise<void> {

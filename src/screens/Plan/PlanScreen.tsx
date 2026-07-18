@@ -14,7 +14,7 @@ import {
   weekStart,
 } from '@/lib/dates'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
-import { useUnits } from '@/app/hooks'
+import { useUnits, useSettings } from '@/app/hooks'
 import { ScreenHeader } from '@/components/ui'
 import { SessionCard } from '@/components/SessionCard'
 import { SessionDot } from '@/components/SessionTypeBadge'
@@ -74,11 +74,18 @@ function WeekView({
   units: import('@/services/db/types').Units
   onOpen: (id: string) => void
 }) {
+  const navigate = useNavigate()
+  const settings = useSettings()
   const days = weekDates(fromISO(cursor))
   const sessions = useLiveQuery(() => db.sessions.where('date').anyOf(days).toArray(), [days.join(',')])
 
   const byDay = (iso: string) => (sessions ?? []).filter((s) => s.date === iso).sort(sortSession)
   const label = `Week of ${format(weekStart(fromISO(cursor)), 'MMM d')}`
+
+  const strength = settings?.strength
+  const placedStrength = (sessions ?? []).filter((s) => s.strength).length
+  const reduced =
+    strength?.enabled && placedStrength >= 1 && placedStrength < strength.frequencyPerWeek
 
   return (
     <div className="px-4">
@@ -88,6 +95,29 @@ function WeekView({
         onNext={() => setCursor(toISO(addDays(fromISO(cursor), 7)))}
         onToday={() => setCursor(toISO(new Date()))}
       />
+
+      {settings && !strength?.enabled && (
+        <button
+          onClick={() => navigate('/strength/onboarding')}
+          className="w-full text-left mt-3 p-4 rounded-card border border-accent-500/40 bg-accent-500/10 flex items-center justify-between gap-3"
+        >
+          <div>
+            <div className="font-semibold text-slate-100">💪 Add strength training</div>
+            <div className="text-xs text-slate-400 mt-0.5">
+              Auto-scheduled around your runs — no gym required.
+            </div>
+          </div>
+          <span className="text-accent-400 text-lg">›</span>
+        </button>
+      )}
+
+      {reduced && (
+        <div className="mt-3 p-3 rounded-card border border-session-tempo/40 bg-session-tempo/10 text-xs text-slate-300">
+          Reduced to {placedStrength} strength{' '}
+          {placedStrength === 1 ? 'session' : 'sessions'} this week due to run load.
+        </div>
+      )}
+
       <div className="flex flex-col gap-4 mt-2">
         {days.map((iso) => {
           const daySessions = byDay(iso)

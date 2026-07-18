@@ -12,6 +12,8 @@ import { Card } from '@/components/ui'
 import { SessionTypeBadge } from '@/components/SessionTypeBadge'
 import { ZoneChip } from '@/components/ZoneChip'
 import { StepTimeline } from '@/components/StepTimeline'
+import { BottomSheet } from '@/components/BottomSheet'
+import { getExercise } from '@/services/strength'
 
 const RUNNABLE = ['easy', 'tempo', 'intervals', 'hills', 'fartlek', 'long']
 
@@ -21,6 +23,7 @@ export function SessionDetailScreen() {
   const units = useUnits()
   const toast = useToast()
   const [editing, setEditing] = useState<'none' | 'move' | 'swap'>('none')
+  const [openExerciseId, setOpenExerciseId] = useState<string | null>(null)
 
   const session = useLiveQuery(() => (id ? db.sessions.get(id) : undefined), [id])
   const weekSiblings = useLiveQuery(async () => {
@@ -97,7 +100,11 @@ export function SessionDetailScreen() {
           <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-2">
             {isChecklist ? 'Exercises' : 'Workout'}
           </h2>
-          <StepTimeline steps={session.steps} units={units} />
+          <StepTimeline
+            steps={session.steps}
+            units={units}
+            onExerciseTap={isChecklist ? setOpenExerciseId : undefined}
+          />
         </Card>
       )}
 
@@ -196,6 +203,57 @@ export function SessionDetailScreen() {
           Un-skip
         </button>
       )}
+
+      <ExerciseSheet exerciseId={openExerciseId} onClose={() => setOpenExerciseId(null)} />
     </div>
+  )
+}
+
+function ExerciseSheet({
+  exerciseId,
+  onClose,
+}: {
+  exerciseId: string | null
+  onClose: () => void
+}) {
+  const exercise = exerciseId ? getExercise(exerciseId) : undefined
+  return (
+    <BottomSheet open={!!exercise} onClose={onClose} title={exercise?.name}>
+      {exercise && (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap gap-2">
+            <span className="text-xs px-2 py-1 rounded-lg bg-ink-700 text-slate-300 capitalize">
+              {exercise.category}
+            </span>
+            <span className="text-xs px-2 py-1 rounded-lg bg-ink-700 text-slate-300 capitalize">
+              {exercise.difficulty}
+            </span>
+            <span className="text-xs px-2 py-1 rounded-lg bg-ink-700 text-slate-300">
+              {exercise.defaultSets} × {exercise.defaultReps}
+            </span>
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold text-slate-300 mb-1.5">How to do it</p>
+            <ol className="flex flex-col gap-1.5 list-decimal list-inside text-sm text-slate-300">
+              {exercise.instructionSteps.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ol>
+          </div>
+
+          {exercise.commonMistakes.length > 0 && (
+            <div>
+              <p className="text-sm font-semibold text-session-tempo mb-1.5">Common mistakes</p>
+              <ul className="flex flex-col gap-1 list-disc list-inside text-sm text-slate-400">
+                {exercise.commonMistakes.map((m, i) => (
+                  <li key={i}>{m}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </BottomSheet>
   )
 }

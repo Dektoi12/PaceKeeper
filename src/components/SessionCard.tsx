@@ -19,6 +19,8 @@ export function SessionCard({
   const meta = SESSION_META[session.type]
   const done = session.status === 'completed'
   const skipped = session.status === 'skipped'
+  const exerciseCount = session.steps.filter((s) => s.kind === 'exercise').length
+  const isStrengthLike = session.type === 'strength' || session.type === 'mobility'
 
   return (
     <Card onClick={onClick} className={done ? 'opacity-70' : ''}>
@@ -34,7 +36,15 @@ export function SessionCard({
           >
             {session.title}
           </h3>
-          {!compact && (
+          {!compact && isStrengthLike && exerciseCount > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mt-2 text-sm text-slate-400">
+              <span>
+                {exerciseCount} {exerciseCount === 1 ? 'exercise' : 'exercises'}
+              </span>
+              {session.plannedDurationMin != null && <span>· {session.plannedDurationMin} min</span>}
+            </div>
+          )}
+          {!compact && !isStrengthLike && (
             <div className="flex flex-wrap items-center gap-2 mt-2">
               {session.targetZone && (
                 <ZoneChip zone={session.targetZone} pace={session.targetPaceRange} units={units} />

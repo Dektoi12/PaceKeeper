@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -8,6 +9,11 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, 'src'),
     },
+  },
+  test: {
+    environment: 'node',
+    globals: true,
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
   plugins: [
     react(),

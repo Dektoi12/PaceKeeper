@@ -1,4 +1,4 @@
-import type { GoalType, Profile, Goal, Assessment } from '@/services/db/types'
+import type { GoalType, Profile, Goal, Assessment, StrengthPreferences } from '@/services/db/types'
 import { generatePlan, type GeneratedPlan } from './generator'
 
 // Fixed templates (spec §2.3): the "keep it simple" path. Each is a preset that
@@ -58,6 +58,7 @@ export function generateFromTemplate(
   profile: Profile,
   goal: Goal,
   assessment: Assessment,
+  strength?: StrengthPreferences,
 ): GeneratedPlan {
   const effectiveProfile: Profile = {
     ...profile,
@@ -75,6 +76,7 @@ export function generateFromTemplate(
     goal: effectiveGoal,
     assessment,
     weeksOverride: template.weeks,
+    strength,
   })
   result.plan.engine = 'template'
   result.plan.templateId = template.id

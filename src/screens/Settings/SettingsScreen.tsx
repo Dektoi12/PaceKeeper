@@ -4,6 +4,7 @@ import {
   updateProfile,
   updateSettings,
   regenerateActivePlan,
+  applyStrengthPreferences,
   resetAllData,
   exportAll,
   importAll,
@@ -13,7 +14,14 @@ import {
   requestNotificationPermission,
   notificationsSupported,
 } from '@/services/notifications'
-import type { Units } from '@/services/db/types'
+import type {
+  Units,
+  Experience,
+  EquipmentType,
+  StrengthGoal,
+  StrengthPreferences,
+} from '@/services/db/types'
+import { DEFAULT_STRENGTH_PREFS } from '@/services/db/types'
 import { useProfile, useLatestAssessment, useSettings } from '@/app/hooks'
 import { useToast } from '@/components/Toast'
 import { formatLongDate } from '@/lib/dates'
@@ -238,6 +246,9 @@ export function SettingsScreen() {
           <Toggle on={!!settings?.notificationsEnabled} onClick={toggleNotifications} disabled={!notificationsSupported()} />
         </Card>
 
+        <SectionTitle>Strength training</SectionTitle>
+        <StrengthSettings />
+
         <SectionTitle>Coach engine</SectionTitle>
         <div className="grid grid-flow-col auto-cols-fr gap-1 bg-ink-700 p-1 rounded-xl">
           {(['rule', 'ai'] as const).map((e) => (
@@ -287,6 +298,162 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex justify-between text-sm">
       <span className="text-slate-400">{label}</span>
       <span className="text-slate-100 font-medium capitalize">{value}</span>
+    </div>
+  )
+}
+
+const STRENGTH_GOALS: { value: StrengthGoal; label: string }[] = [
+  { value: 'runningFocus', label: 'Running Focus' },
+  { value: 'allRoundStrength', label: 'All-Round' },
+  { value: 'upperBodyFocus', label: 'Upper Body' },
+]
+const STRENGTH_EQUIPMENT: { value: EquipmentType; label: string }[] = [
+  { value: 'resistanceBand', label: 'Band' },
+  { value: 'dumbbells', label: 'Dumbbells' },
+  { value: 'pullUpBar', label: 'Pull-up bar' },
+  { value: 'gym', label: 'Full gym' },
+]
+const EXPERIENCE_LEVELS: Experience[] = ['beginner', 'intermediate', 'advanced']
+
+function StrengthSettings() {
+  const settings = useSettings()
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+
+  const prefs: StrengthPreferences =
+    settings?.strength ?? { ...DEFAULT_STRENGTH_PREFS, updatedAt: 0 }
+
+  async function save(patch: Partial<StrengthPreferences>, note: string) {
+    setBusy(true)
+    try {
+      await applyStrengthPreferences({ ...prefs, ...patch })
+      toast.show(note, 'success')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggleEquip = (e: EquipmentType) => {
+    const has = prefs.equipment.includes(e)
+    const next = has ? prefs.equipment.filter((x) => x !== e) : [...prefs.equipment, e]
+    const equipment = next.includes('none') ? next : ['none', ...next]
+    save({ equipment: equipment as EquipmentType[] }, 'Equipment updated')
+  }
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <div className="pr-3">
+          <p className="text-sm text-slate-200 font-medium">Strength sessions</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Auto-scheduled around your runs. Changes apply to upcoming weeks.
+          </p>
+        </div>
+        <Toggle
+          on={!!prefs.enabled}
+          onClick={() => save({ enabled: !prefs.enabled }, prefs.enabled ? 'Strength off' : 'Strength on')}
+        />
+      </div>
+
+      {prefs.enabled && (
+        <div className="flex flex-col gap-4 pt-1">
+          <SettingSegment
+            label="Goal"
+            options={STRENGTH_GOALS.map((g) => ({ value: g.value, label: g.label }))}
+            value={prefs.goal}
+            disabled={busy}
+            onChange={(v) => save({ goal: v as StrengthGoal }, 'Goal updated')}
+          />
+          <SettingSegment
+            label="Experience"
+            options={EXPERIENCE_LEVELS.map((e) => ({ value: e, label: e }))}
+            value={prefs.experienceLevel}
+            disabled={busy}
+            onChange={(v) => save({ experienceLevel: v as Experience }, 'Level updated')}
+          />
+
+          <div>
+            <p className="text-sm text-slate-400 mb-1.5">Equipment</p>
+            <div className="flex flex-wrap gap-2">
+              {STRENGTH_EQUIPMENT.map((e) => {
+                const active = prefs.equipment.includes(e.value)
+                return (
+                  <button
+                    key={e.value}
+                    disabled={busy}
+                    onClick={() => toggleEquip(e.value)}
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                      active
+                        ? 'border-accent-500 bg-accent-500/10 text-accent-300'
+                        : 'border-ink-600 text-slate-400'
+                    }`}
+                  >
+                    {e.label}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-slate-600 mt-1.5">Bodyweight is always included.</p>
+          </div>
+
+          <SettingSegment
+            label="Session length"
+            options={[
+              { value: '20', label: '20 min' },
+              { value: '30', label: '30 min' },
+              { value: '45', label: '45 min' },
+            ]}
+            value={String(prefs.sessionLengthMinutes)}
+            disabled={busy}
+            onChange={(v) => save({ sessionLengthMinutes: Number(v) as 20 | 30 | 45 }, 'Length updated')}
+          />
+          <SettingSegment
+            label="Frequency"
+            options={[
+              { value: '1', label: '1× / wk' },
+              { value: '2', label: '2× / wk' },
+              { value: '3', label: '3× / wk' },
+            ]}
+            value={String(prefs.frequencyPerWeek)}
+            disabled={busy}
+            onChange={(v) => save({ frequencyPerWeek: Number(v) as 1 | 2 | 3 }, 'Frequency updated')}
+          />
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function SettingSegment({
+  label,
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string
+  options: { value: string; label: string }[]
+  value: string
+  onChange: (v: string) => void
+  disabled?: boolean
+}) {
+  return (
+    <div>
+      <p className="text-sm text-slate-400 mb-1.5">{label}</p>
+      <div className="grid grid-flow-col auto-cols-fr gap-1 bg-ink-700 p-1 rounded-xl">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            disabled={disabled}
+            onClick={() => onChange(o.value)}
+            className={`py-2 rounded-lg text-sm font-medium capitalize transition-colors ${
+              value === o.value ? 'bg-accent-500 text-white' : 'text-slate-400'
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

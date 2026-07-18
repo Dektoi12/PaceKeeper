@@ -5,6 +5,7 @@ import type {
   Plan,
   Session,
   SessionType,
+  StrengthPreferences,
   WorkoutStep,
   PaceRange,
   PaceZones,
@@ -16,6 +17,12 @@ import { weekStart, addDays, toISO, todayISO, daysBetween } from '@/lib/dates'
 import { paceZonesFromAssessment } from '@/services/zones'
 import { strengthSteps, MOBILITY } from './exercises'
 import { SESSION_META } from './sessionMeta'
+import {
+  strengthEngine,
+  type DaySlot,
+  type RunIntensity,
+  type StrengthPlacement,
+} from '@/services/strength'
 
 // ---- Goal-level constants ----
 
@@ -54,6 +61,7 @@ export interface GenerateInput {
   goal: Goal
   assessment: Assessment
   weeksOverride?: number
+  strength?: StrengthPreferences // when enabled, the strength engine places strength/mobility days
 }
 
 export interface GeneratedPlan {
@@ -62,7 +70,7 @@ export interface GeneratedPlan {
 }
 
 export function generatePlan(input: GenerateInput): GeneratedPlan {
-  const { profile, goal, assessment } = input
+  const { profile, goal, assessment, strength } = input
   const zones = assessment.derivedPaceZones ?? paceZonesFromAssessment(assessment)
   const weeks = input.weeksOverride ?? resolveWeeks(goal)
   const runDays = clampRunDays(profile.preferredRunDays)
@@ -94,43 +102,54 @@ export function generatePlan(input: GenerateInput): GeneratedPlan {
     const easyPool = Math.max(weekly - longKm - qualityKm * qualityCount, easyCount * 3)
     const easyKm = round1(easyPool / Math.max(easyCount, 1))
 
-    const nonRunWeekdays = mondayFirstOrder([0, 1, 2, 3, 4, 5, 6]).filter(
-      (d) => !runDays.includes(d),
-    )
-    const strengthDay = nonRunWeekdays[0]
-    const mobilityDay =
-      nonRunWeekdays.length > 1 ? nonRunWeekdays[nonRunWeekdays.length - 1] : undefined
-
-    let qualitySlot = 0
-    let easySlot = 0
-
-    for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
+    // Classify each of the week's 7 days (Monday-first) with its run role/intensity.
+    const dayInfos = Array.from({ length: 7 }, (_, dayIdx) => {
       const date = addDays(weekMonday, dayIdx)
       const iso = toISO(date)
       const dow = date.getDay() // 0=Sun … 6=Sat
-
       const runRoleIndex = orderedRunWeekdays.indexOf(dow)
+      const role = runRoleIndex >= 0 ? roles[runRoleIndex] : undefined
+      const runIntensity: RunIntensity | undefined =
+        role === 'long' ? 'long' : role === 'quality' ? 'hard' : role === 'easy' ? 'easy' : undefined
+      return { iso, dow, role, runIntensity }
+    })
+
+    // Strength placement (only when the feature is enabled). The engine owns all
+    // strength/mobility days; remaining open days fall back to rest.
+    const placementByDate = new Map<string, StrengthPlacement>()
+    if (strength?.enabled) {
+      const days: DaySlot[] = dayInfos.map((d) => ({ date: d.iso, run: d.runIntensity }))
+      const scheduled = strengthEngine.scheduleWeek({ weekNumber, days, prefs: strength })
+      for (const p of scheduled.placements) placementByDate.set(p.date, p)
+    }
+
+    // Legacy fixed strength/mobility days (feature-off behaviour, unchanged).
+    const nonRunWeekdays = mondayFirstOrder([0, 1, 2, 3, 4, 5, 6]).filter((d) => !runDays.includes(d))
+    const legacyStrengthDay = nonRunWeekdays[0]
+    const legacyMobilityDay =
+      nonRunWeekdays.length > 1 ? nonRunWeekdays[nonRunWeekdays.length - 1] : undefined
+
+    let qualitySlot = 0
+
+    for (const { iso, dow, role } of dayInfos) {
       let session: Session
 
-      if (runRoleIndex >= 0) {
-        const role = roles[runRoleIndex]
-        if (role === 'long') {
-          session = buildRunSession('long', iso, weekNumber, dow, planId, zones, {
-            distanceKm: longKm,
-          })
-        } else if (role === 'quality') {
-          const qType = qualityType(weekNumber, qualitySlot, phase, isFitness)
-          qualitySlot++
-          session = buildQualitySession(qType, iso, weekNumber, dow, planId, zones, qualityKm)
-        } else {
-          easySlot++
-          session = buildRunSession('easy', iso, weekNumber, dow, planId, zones, {
-            distanceKm: easyKm,
-          })
-        }
-      } else if (dow === strengthDay) {
+      if (role === 'long') {
+        session = buildRunSession('long', iso, weekNumber, dow, planId, zones, { distanceKm: longKm })
+      } else if (role === 'quality') {
+        const qType = qualityType(weekNumber, qualitySlot, phase, isFitness)
+        qualitySlot++
+        session = buildQualitySession(qType, iso, weekNumber, dow, planId, zones, qualityKm)
+      } else if (role === 'easy') {
+        session = buildRunSession('easy', iso, weekNumber, dow, planId, zones, { distanceKm: easyKm })
+      } else if (strength?.enabled) {
+        const placement = placementByDate.get(iso)
+        session = placement
+          ? buildPlacementSession(placement, weekNumber, dow, planId)
+          : buildRestSession(iso, weekNumber, dow, planId)
+      } else if (dow === legacyStrengthDay) {
         session = buildStrengthSession(iso, weekNumber, dow, planId, weekNumber % 2 === 0 ? 'B' : 'A')
-      } else if (dow === mobilityDay) {
+      } else if (dow === legacyMobilityDay) {
         session = buildMobilitySession(iso, weekNumber, dow, planId)
       } else {
         session = buildRestSession(iso, weekNumber, dow, planId)
@@ -138,7 +157,6 @@ export function generatePlan(input: GenerateInput): GeneratedPlan {
 
       sessions.push(session)
     }
-    void easySlot
   }
 
   const plan: Plan = {
@@ -428,6 +446,26 @@ function buildStrengthSession(
     description: SESSION_META.strength.why,
     steps: strengthSteps(variant),
     plannedDurationMin: 25,
+  }
+}
+
+function buildPlacementSession(
+  placement: StrengthPlacement,
+  weekNumber: number,
+  dow: number,
+  planId: string,
+): Session {
+  return {
+    ...base(placement.date, weekNumber, dow, planId, placement.sessionType),
+    title: placement.title,
+    description: SESSION_META[placement.sessionType].why,
+    steps: placement.steps,
+    plannedDurationMin: placement.durationMin,
+    strength: {
+      templateId: placement.templateId,
+      kind: placement.kind,
+      runInterference: placement.runInterference,
+    },
   }
 }
 

@@ -19,6 +19,12 @@ export type SessionType =
   | 'rest'
 
 export type SessionStatus = 'upcoming' | 'completed' | 'skipped' | 'moved'
+
+// --- Strength training (spec: STRENGTH_FEATURE_PLAN.md) ---
+export type EquipmentType = 'none' | 'resistanceBand' | 'dumbbells' | 'pullUpBar' | 'gym'
+export type StrengthGoal = 'runningFocus' | 'allRoundStrength' | 'upperBodyFocus'
+export type StrengthSessionKind = 'legsAndCore' | 'upperBody' | 'fullBody' | 'coreAndMobility'
+export type RunInterference = 'low' | 'medium' | 'high'
 export type PlanEngine = 'rule' | 'ai' | 'template'
 export type PlanStatus = 'active' | 'completed' | 'archived'
 export type RunSource = 'manual' | 'gpx' | 'tcx' | 'fit'
@@ -67,7 +73,19 @@ export type WorkoutStep =
     }
   | { kind: 'recover'; durationMin: number; mode: 'jog' | 'walk' | 'rest' }
   | { kind: 'repeat'; times: number; steps: WorkoutStep[] }
-  | { kind: 'exercise'; name: string; sets: number; reps: string } // strength/mobility
+  | {
+      // strength/mobility. exerciseId/restSeconds/block are optional so legacy
+      // rows (and the StepTimeline renderer) stay valid.
+      kind: 'exercise'
+      name: string
+      sets: number
+      reps: string
+      exerciseId?: string
+      restSeconds?: number
+      block?: StrengthBlockLabel
+    }
+
+export type StrengthBlockLabel = 'Warm-up' | 'Main' | 'Core' | 'Finisher' | 'Cooldown'
 
 export interface Split {
   index: number // 1-based km or mi
@@ -152,6 +170,12 @@ export interface Session {
   status: SessionStatus
   linkedRunId?: string
   completedAt?: number
+  // Present on scheduler-placed strength/mobility sessions; drives card + detail UI.
+  strength?: {
+    templateId: string
+    kind: StrengthSessionKind
+    runInterference: RunInterference
+  }
 }
 
 export interface Run {
@@ -221,10 +245,30 @@ export interface ChatMessage {
   createdAt: number
 }
 
+export interface StrengthPreferences {
+  enabled: boolean
+  goal: StrengthGoal
+  experienceLevel: Experience // reuse beginner | intermediate | advanced
+  equipment: EquipmentType[] // 'none' (bodyweight) always implied
+  sessionLengthMinutes: 20 | 30 | 45
+  frequencyPerWeek: 1 | 2 | 3
+  updatedAt: number
+}
+
+export const DEFAULT_STRENGTH_PREFS: Omit<StrengthPreferences, 'updatedAt'> = {
+  enabled: false,
+  goal: 'runningFocus',
+  experienceLevel: 'beginner',
+  equipment: ['none'],
+  sessionLengthMinutes: 30,
+  frequencyPerWeek: 2,
+}
+
 export interface AppSettings {
   id: string // singleton: 'app'
   theme: 'dark' | 'light'
   coachEngine: 'rule' | 'ai'
   notificationsEnabled: boolean
   lastBackupAt?: number
+  strength?: StrengthPreferences // undefined = feature never enabled
 }
