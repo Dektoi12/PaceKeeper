@@ -36,7 +36,11 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Exercise demo clips are precached so the players work offline, which is
+        // the whole point of a local-first app. Raise the per-file cap because a
+        // demo clip is larger than Workbox's 2 MiB default.
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,mp4,gif,webp,jpg}'],
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
     }),
   ],

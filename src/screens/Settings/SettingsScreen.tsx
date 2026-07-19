@@ -5,6 +5,7 @@ import {
   updateSettings,
   regenerateActivePlan,
   applyStrengthPreferences,
+  logStrengthActivity,
   resetAllData,
   exportAll,
   importAll,
@@ -24,7 +25,7 @@ import type {
 import { DEFAULT_STRENGTH_PREFS } from '@/services/db/types'
 import { useProfile, useLatestAssessment, useSettings } from '@/app/hooks'
 import { useToast } from '@/components/Toast'
-import { formatLongDate } from '@/lib/dates'
+import { formatLongDate, todayISO } from '@/lib/dates'
 import { ScreenHeader, Card, SectionTitle } from '@/components/ui'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -287,6 +288,42 @@ export function SettingsScreen() {
           </Card>
         )}
 
+        <SectionTitle>Credits</SectionTitle>
+        <Card className="flex flex-col gap-2">
+          <p className="text-sm text-slate-300">Exercise demo photos</p>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            From{' '}
+            <a
+              className="text-accent-400 underline"
+              href="https://github.com/yuhonas/free-exercise-db"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              free-exercise-db
+            </a>
+            , photographed by{' '}
+            <a
+              className="text-accent-400 underline"
+              href="https://github.com/everkinetic/data"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              Everkinetic
+            </a>
+            , used under{' '}
+            <a
+              className="text-accent-400 underline"
+              href="https://creativecommons.org/licenses/by-sa/4.0/"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              CC BY-SA 4.0
+            </a>
+            . Frames were cropped to square and resized; those adaptations are
+            shared under the same licence.
+          </p>
+        </Card>
+
         <p className="text-center text-xs text-slate-600 mt-6 pb-4">PaceKeeper · v0.1 · local-first</p>
       </div>
     </div>
@@ -420,7 +457,83 @@ function StrengthSettings() {
           />
         </div>
       )}
+
+      <ManualStrengthLog />
     </Card>
+  )
+}
+
+/** Log an external/off-app strength session (gym, calisthenics, class) — Runna parity. */
+function ManualStrengthLog() {
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [date, setDate] = useState(todayISO())
+  const [duration, setDuration] = useState('30')
+  const [label, setLabel] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function submit() {
+    const durationMinutes = Number(duration)
+    if (!durationMinutes || durationMinutes <= 0) {
+      toast.show('Enter a duration in minutes')
+      return
+    }
+    setSaving(true)
+    try {
+      await logStrengthActivity({ date, durationMinutes, label: label.trim() || undefined })
+      toast.show('Session logged', 'success')
+      setOpen(false)
+      setLabel('')
+      setDuration('30')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="pt-3 mt-1 border-t border-ink-700">
+      {!open ? (
+        <button className="btn-ghost w-full text-sm" onClick={() => setOpen(true)}>
+          + Log an external strength session
+        </button>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-slate-300 font-medium">Log external session</p>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-slate-500">Date</span>
+              <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-slate-500">Duration (min)</span>
+              <input
+                className="input"
+                inputMode="numeric"
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+              />
+            </label>
+          </div>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-slate-500">Label (optional)</span>
+            <input
+              className="input"
+              placeholder="Gym session, Calisthenics…"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <button className="btn-ghost" onClick={() => setOpen(false)} disabled={saving}>
+              Cancel
+            </button>
+            <button className="btn-primary" onClick={submit} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

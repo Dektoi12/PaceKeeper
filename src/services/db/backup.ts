@@ -6,7 +6,7 @@ import { todayISO } from '@/lib/dates'
 // export is just every table dumped into one document the user can save to disk
 // and re-import on another device.
 
-const BACKUP_VERSION = 1
+const BACKUP_VERSION = 2
 
 const TABLES = [
   'profile',
@@ -20,6 +20,7 @@ const TABLES = [
   'recaps',
   'chatMessages',
   'settings',
+  'strengthActivityLog',
 ] as const
 
 type TableName = (typeof TABLES)[number]

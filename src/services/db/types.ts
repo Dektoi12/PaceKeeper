@@ -18,13 +18,14 @@ export type SessionType =
   | 'mobility'
   | 'rest'
 
-export type SessionStatus = 'upcoming' | 'completed' | 'skipped' | 'moved'
+export type SessionStatus = 'upcoming' | 'inProgress' | 'completed' | 'skipped' | 'moved'
 
 // --- Strength training (spec: STRENGTH_FEATURE_PLAN.md) ---
 export type EquipmentType = 'none' | 'resistanceBand' | 'dumbbells' | 'pullUpBar' | 'gym'
 export type StrengthGoal = 'runningFocus' | 'allRoundStrength' | 'upperBodyFocus'
 export type StrengthSessionKind = 'legsAndCore' | 'upperBody' | 'fullBody' | 'coreAndMobility'
 export type RunInterference = 'low' | 'medium' | 'high'
+export type SkipReason = 'tired' | 'noTime' | 'injury'
 export type PlanEngine = 'rule' | 'ai' | 'template'
 export type PlanStatus = 'active' | 'completed' | 'archived'
 export type RunSource = 'manual' | 'gpx' | 'tcx' | 'fit'
@@ -176,6 +177,27 @@ export interface Session {
     kind: StrengthSessionKind
     runInterference: RunInterference
   }
+  // Session-player progress + completion metadata (strength/mobility only).
+  strengthLog?: StrengthLog
+  routineLog?: RoutineLog // run warm-up / cool-down completion
+  skipReason?: SkipReason // feeds adaptivity (spec §7)
+}
+
+/**
+ * Completion timestamps for the run warm-up and cool-down routines. The routines
+ * themselves are static app content resolved at render time, so only the "done"
+ * state needs storing.
+ */
+export interface RoutineLog {
+  warmupCompletedAt?: number
+  cooldownCompletedAt?: number
+}
+
+export interface StrengthLog {
+  startedAt?: number
+  completedExerciseIds: string[] // exerciseId (or step index fallback) marked done
+  perceivedEffort?: 1 | 2 | 3 | 4 | 5 // RPE-lite after completion
+  userNotes?: string
 }
 
 export interface Run {
@@ -255,6 +277,31 @@ export interface StrengthPreferences {
   updatedAt: number
 }
 
+// Manual/external strength log (Runna-style fallback, spec §4.5).
+export interface StrengthActivityLog {
+  id: string
+  date: string // ISO yyyy-MM-dd
+  durationMinutes: number
+  label?: string // 'Gym session', 'Calisthenics'
+  notes?: string
+  source: 'manual'
+  createdAt: number
+}
+
+// Rules-only adaptivity suggestion (spec §7). `patch` is applied to prefs on accept.
+export type StrengthAdjustmentKind =
+  | 'reduceFrequency'
+  | 'increaseDifficulty'
+  | 'decreaseDifficulty'
+
+export interface StrengthAdjustment {
+  kind: StrengthAdjustmentKind
+  signature: string // stable id for a given suggestion, so a dismissal sticks
+  title: string
+  detail: string
+  patch: Partial<StrengthPreferences>
+}
+
 export const DEFAULT_STRENGTH_PREFS: Omit<StrengthPreferences, 'updatedAt'> = {
   enabled: false,
   goal: 'runningFocus',
@@ -271,4 +318,5 @@ export interface AppSettings {
   notificationsEnabled: boolean
   lastBackupAt?: number
   strength?: StrengthPreferences // undefined = feature never enabled
+  strengthAdjustmentDismissed?: string // signature of the last dismissed suggestion
 }

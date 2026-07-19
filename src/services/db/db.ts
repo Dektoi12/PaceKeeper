@@ -11,10 +11,9 @@ import type {
   Recap,
   ChatMessage,
   AppSettings,
+  StrengthActivityLog,
 } from './types'
 
-// Single schema version — all tables declared up-front (spec §4) so later
-// phases (import, stats, coach) never need a migration.
 export class PaceKeeperDB extends Dexie {
   profile!: Table<Profile, string>
   goals!: Table<Goal, string>
@@ -27,11 +26,13 @@ export class PaceKeeperDB extends Dexie {
   recaps!: Table<Recap, string>
   chatMessages!: Table<ChatMessage, string>
   settings!: Table<AppSettings, string>
+  strengthActivityLog!: Table<StrengthActivityLog, string>
 
   constructor() {
     super('pacekeeper')
+    // v1 — original schema. Only index fields we query on; complex fields
+    // (steps, splits) live unindexed in the row.
     this.version(1).stores({
-      // Only index fields we query on. Complex fields (steps, splits) live in the row.
       profile: 'id',
       goals: 'id, status, targetDate',
       assessments: 'id, date',
@@ -43,6 +44,11 @@ export class PaceKeeperDB extends Dexie {
       recaps: 'id, weekStart',
       chatMessages: 'id, createdAt',
       settings: 'id',
+    })
+    // v2 — strength manual/external activity log (spec §4.5). Additive: no
+    // changes to existing stores, so existing rows migrate untouched.
+    this.version(2).stores({
+      strengthActivityLog: 'id, date',
     })
   }
 }

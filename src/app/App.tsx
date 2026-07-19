@@ -15,6 +15,8 @@ import { SettingsScreen } from '@/screens/Settings/SettingsScreen'
 import { SessionDetailScreen } from '@/screens/Plan/SessionDetailScreen'
 import { RunDetailScreen } from '@/screens/Stats/RunDetailScreen'
 import { StrengthOnboardingScreen } from '@/screens/Strength/StrengthOnboardingScreen'
+import { StrengthPlayerScreen } from '@/screens/Strength/StrengthPlayerScreen'
+import { RoutinePlayerScreen } from '@/screens/Routine/RoutinePlayerScreen'
 
 export default function App() {
   const location = useLocation()
@@ -54,6 +56,8 @@ export default function App() {
     <ToastProvider>
       <Routes>
         <Route path="/onboarding" element={<OnboardingScreen />} />
+        <Route path="/strength/play/:id" element={<StrengthPlayerScreen />} />
+        <Route path="/routine/:id/:phase" element={<RoutinePlayerScreen />} />
         <Route element={<AppLayout />}>
           <Route path="/" element={<TodayScreen />} />
           <Route path="/plan" element={<PlanScreen />} />

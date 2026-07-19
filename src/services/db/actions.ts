@@ -21,6 +21,7 @@ import { computeHRZones } from '@/services/zones'
 import { generatePlan } from '@/services/planEngine'
 import { generateFromTemplate, getTemplate, SESSION_META } from '@/services/planEngine'
 import { strengthEngine, type DaySlot, type RunIntensity, type StrengthPlacement } from '@/services/strength'
+import type { SkipReason, StrengthActivityLog, StrengthAdjustment } from './types'
 import { findMatch, upsertRecords, evaluateBadges } from '@/services/stats'
 import { coach } from '@/services/coach/RuleBasedCoach'
 import { proposeAdaptation, type AdaptationProposal, type SessionPatch } from '@/services/coach/adapt'
@@ -280,10 +281,137 @@ export async function applyStrengthPreferences(prefs: StrengthPreferences): Prom
   })
 }
 
+// ---- Strength session player + logging (spec §4, §9.4-9.6) ----
+
+/** Begin (or resume) a strength/mobility session — moves it to inProgress. */
+export async function startStrengthSession(sessionId: string): Promise<void> {
+  const s = await db.sessions.get(sessionId)
+  if (!s) return
+  await patchSession(sessionId, {
+    status: 'inProgress',
+    strengthLog: {
+      startedAt: s.strengthLog?.startedAt ?? Date.now(),
+      completedExerciseIds: s.strengthLog?.completedExerciseIds ?? [],
+      perceivedEffort: s.strengthLog?.perceivedEffort,
+      userNotes: s.strengthLog?.userNotes,
+    },
+  })
+}
+
+/** Persist which exercises the athlete has ticked off (resume support). */
+export async function setStrengthProgress(sessionId: string, completedExerciseIds: string[]): Promise<void> {
+  const s = await db.sessions.get(sessionId)
+  if (!s) return
+  await patchSession(sessionId, {
+    strengthLog: {
+      startedAt: s.strengthLog?.startedAt ?? Date.now(),
+      completedExerciseIds,
+      perceivedEffort: s.strengthLog?.perceivedEffort,
+      userNotes: s.strengthLog?.userNotes,
+    },
+  })
+}
+
+/** Finish a strength/mobility session with perceived effort + optional note. */
+export async function completeStrengthSession(
+  sessionId: string,
+  opts: { perceivedEffort?: 1 | 2 | 3 | 4 | 5; userNotes?: string; completedExerciseIds?: string[] } = {},
+): Promise<void> {
+  const s = await db.sessions.get(sessionId)
+  if (!s) return
+  await patchSession(sessionId, {
+    status: 'completed',
+    completedAt: Date.now(),
+    strengthLog: {
+      startedAt: s.strengthLog?.startedAt ?? Date.now(),
+      completedExerciseIds: opts.completedExerciseIds ?? s.strengthLog?.completedExerciseIds ?? [],
+      perceivedEffort: opts.perceivedEffort ?? s.strengthLog?.perceivedEffort,
+      userNotes: opts.userNotes ?? s.strengthLog?.userNotes,
+    },
+  })
+}
+
+/**
+ * Mark a run's warm-up or cool-down routine as done. The existing log is spread
+ * so finishing one phase never clears the other.
+ */
+export async function completeRoutine(
+  sessionId: string,
+  phase: 'warmup' | 'cooldown',
+): Promise<void> {
+  const s = await db.sessions.get(sessionId)
+  if (!s) return
+  await patchSession(sessionId, {
+    routineLog: {
+      ...s.routineLog,
+      [phase === 'warmup' ? 'warmupCompletedAt' : 'cooldownCompletedAt']: Date.now(),
+    },
+  })
+}
+
+/** Skip a session, recording the reason (feeds adaptivity §7). */
+export async function skipSessionWithReason(sessionId: string, reason: SkipReason): Promise<void> {
+  await patchSession(sessionId, { status: 'skipped', skipReason: reason })
+}
+
+/** Log an external/manual strength session (Runna parity, §4.5). */
+export async function logStrengthActivity(input: {
+  date: string
+  durationMinutes: number
+  label?: string
+  notes?: string
+}): Promise<StrengthActivityLog> {
+  const log: StrengthActivityLog = {
+    id: uid(),
+    date: input.date,
+    durationMinutes: input.durationMinutes,
+    label: input.label,
+    notes: input.notes,
+    source: 'manual',
+    createdAt: Date.now(),
+  }
+  await db.strengthActivityLog.put(log)
+  return log
+}
+
+export async function deleteStrengthActivity(id: string): Promise<void> {
+  await db.strengthActivityLog.delete(id)
+}
+
+/** The current adaptivity suggestion, or null (respects a prior dismissal). */
+export async function getStrengthAdjustment(): Promise<StrengthAdjustment | null> {
+  const settings = await getSettings()
+  const prefs = settings.strength
+  if (!prefs?.enabled) return null
+  const sessions = await db.sessions.where('type').anyOf('strength', 'mobility').toArray()
+  const suggestion = strengthEngine.suggestAdjustment(sessions, prefs)
+  if (!suggestion) return null
+  if (suggestion.signature === settings.strengthAdjustmentDismissed) return null
+  return suggestion
+}
+
+/**
+ * Accept a suggestion — apply its preference patch to future weeks. Also marks
+ * this signature as handled so the same evidence window (e.g. the same 3
+ * low-effort completions) doesn't immediately re-suggest another bump once the
+ * preference change makes a further adjustment newly eligible.
+ */
+export async function applyStrengthAdjustment(adjustment: StrengthAdjustment): Promise<void> {
+  const settings = await getSettings()
+  const prefs = settings.strength
+  if (!prefs) return
+  await updateSettings({ strengthAdjustmentDismissed: adjustment.signature })
+  await applyStrengthPreferences({ ...prefs, ...adjustment.patch })
+}
+
+export async function dismissStrengthAdjustment(signature: string): Promise<void> {
+  await updateSettings({ strengthAdjustmentDismissed: signature })
+}
+
 export async function resetAllData(): Promise<void> {
   await db.transaction(
     'rw',
-    [db.profile, db.goals, db.assessments, db.plans, db.sessions, db.runs, db.records, db.achievements, db.recaps, db.chatMessages, db.settings],
+    [db.profile, db.goals, db.assessments, db.plans, db.sessions, db.runs, db.records, db.achievements, db.recaps, db.chatMessages, db.settings, db.strengthActivityLog],
     async () => {
       await Promise.all([
         db.profile.clear(),
@@ -297,6 +425,7 @@ export async function resetAllData(): Promise<void> {
         db.recaps.clear(),
         db.chatMessages.clear(),
         db.settings.clear(),
+        db.strengthActivityLog.clear(),
       ])
     },
   )

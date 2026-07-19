@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, setSessionStatus, moveSession, swapSessions } from '@/services/db'
+import { db, setSessionStatus, moveSession, swapSessions, skipSessionWithReason } from '@/services/db'
 import { SESSION_META } from '@/services/planEngine'
-import type { Session } from '@/services/db/types'
+import type { Session, SkipReason } from '@/services/db/types'
 import { weekDates, fromISO, formatLongDate, format } from '@/lib/dates'
 import { formatDistance } from '@/lib/formatters'
 import { useUnits } from '@/app/hooks'
@@ -13,7 +13,9 @@ import { SessionTypeBadge } from '@/components/SessionTypeBadge'
 import { ZoneChip } from '@/components/ZoneChip'
 import { StepTimeline } from '@/components/StepTimeline'
 import { BottomSheet } from '@/components/BottomSheet'
+import { ExerciseDemo } from '@/components/demo/ExerciseDemo'
 import { getExercise } from '@/services/strength'
+import { estimateRoutineMinutes, getRunRoutine } from '@/services/routines'
 
 const RUNNABLE = ['easy', 'tempo', 'intervals', 'hills', 'fartlek', 'long']
 
@@ -22,7 +24,7 @@ export function SessionDetailScreen() {
   const navigate = useNavigate()
   const units = useUnits()
   const toast = useToast()
-  const [editing, setEditing] = useState<'none' | 'move' | 'swap'>('none')
+  const [editing, setEditing] = useState<'none' | 'move' | 'swap' | 'skipReason'>('none')
   const [openExerciseId, setOpenExerciseId] = useState<string | null>(null)
 
   const session = useLiveQuery(() => (id ? db.sessions.get(id) : undefined), [id])
@@ -49,6 +51,11 @@ export function SessionDetailScreen() {
 
   async function skip() {
     await setSessionStatus(session!.id, 'skipped')
+    toast.show('Session skipped')
+  }
+  async function skipWithReason(reason: SkipReason) {
+    await skipSessionWithReason(session!.id, reason)
+    setEditing('none')
     toast.show('Session skipped')
   }
   async function markDone() {
@@ -108,12 +115,69 @@ export function SessionDetailScreen() {
         </Card>
       )}
 
+      {isRunnable && (
+        <Card className="mt-4">
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-1">
+            Warm-up &amp; cool-down
+          </h2>
+          <p className="text-xs text-slate-500 mb-3">
+            Guided mobility before and after — do the cool-down once you&rsquo;re back.
+          </p>
+          <div className="flex flex-col gap-2">
+            {(['warmup', 'cooldown'] as const).map((phase) => {
+              const routine = getRunRoutine(phase)
+              const doneAt =
+                phase === 'warmup'
+                  ? session.routineLog?.warmupCompletedAt
+                  : session.routineLog?.cooldownCompletedAt
+              return (
+                <div
+                  key={phase}
+                  className="flex items-center justify-between gap-3 p-3 rounded-lg border border-ink-600"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm text-slate-200">{routine.title}</p>
+                    <p className="text-xs text-slate-500">
+                      ~{estimateRoutineMinutes(routine)} min · {routine.items.length} moves
+                    </p>
+                  </div>
+                  {doneAt ? (
+                    <span className="text-session-easy text-sm font-semibold shrink-0">✓ Done</span>
+                  ) : (
+                    <button
+                      className="btn-ghost text-sm py-1.5 px-3 shrink-0"
+                      onClick={() => navigate(`/routine/${session.id}/${phase}`)}
+                    >
+                      Start
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+
       {session.status === 'completed' && linkedRun && (
         <Card className="mt-4" onClick={() => navigate(`/run/${linkedRun.id}`)}>
           <p className="text-session-easy text-sm font-semibold">✓ Completed</p>
           <p className="text-sm text-slate-300 mt-1">
             {formatDistance(linkedRun.distanceKm, units)} logged — tap to view run
           </p>
+        </Card>
+      )}
+
+      {session.status === 'completed' && isChecklist && session.strengthLog && (
+        <Card className="mt-4">
+          <p className="text-session-easy text-sm font-semibold">✓ Completed</p>
+          {session.strengthLog.perceivedEffort != null && (
+            <p className="text-sm text-slate-300 mt-1">
+              Perceived effort: {session.strengthLog.perceivedEffort}/5
+            </p>
+          )}
+          {session.strengthLog.userNotes && (
+            <p className="text-sm text-slate-400 mt-1">“{session.strengthLog.userNotes}”</p>
+          )}
         </Card>
       )}
 
@@ -129,9 +193,14 @@ export function SessionDetailScreen() {
             </button>
           )}
           {isChecklist && (
-            <button className="btn-primary" onClick={markDone}>
-              Mark complete
-            </button>
+            <>
+              <button className="btn-primary" onClick={() => navigate(`/strength/play/${session.id}`)}>
+                {session.status === 'inProgress' ? 'Resume session' : 'Start session'}
+              </button>
+              <button className="btn-ghost text-sm" onClick={markDone}>
+                Mark complete without the guide
+              </button>
+            </>
           )}
 
           {editing === 'none' && (
@@ -142,10 +211,30 @@ export function SessionDetailScreen() {
               <button className="btn-ghost" onClick={() => setEditing('swap')} disabled={(weekSiblings ?? []).length === 0}>
                 Swap
               </button>
-              <button className="btn-ghost" onClick={skip}>
+              <button className="btn-ghost" onClick={() => (isChecklist ? setEditing('skipReason') : skip())}>
                 Skip
               </button>
             </div>
+          )}
+
+          {editing === 'skipReason' && (
+            <Card>
+              <p className="text-sm text-slate-400 mb-2">Why are you skipping?</p>
+              <div className="grid grid-cols-3 gap-2">
+                <button className="btn-ghost text-sm" onClick={() => skipWithReason('tired')}>
+                  😴 Tired
+                </button>
+                <button className="btn-ghost text-sm" onClick={() => skipWithReason('noTime')}>
+                  ⏱️ No time
+                </button>
+                <button className="btn-ghost text-sm" onClick={() => skipWithReason('injury')}>
+                  🩹 Injury
+                </button>
+              </div>
+              <button className="text-slate-500 text-sm mt-2" onClick={() => setEditing('none')}>
+                Cancel
+              </button>
+            </Card>
           )}
 
           {editing === 'move' && (
@@ -221,6 +310,10 @@ function ExerciseSheet({
     <BottomSheet open={!!exercise} onClose={onClose} title={exercise?.name}>
       {exercise && (
         <div className="flex flex-col gap-4">
+          <div className="flex justify-center">
+            <ExerciseDemo exerciseId={exercise.id} size={150} />
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <span className="text-xs px-2 py-1 rounded-lg bg-ink-700 text-slate-300 capitalize">
               {exercise.category}

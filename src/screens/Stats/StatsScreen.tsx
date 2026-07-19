@@ -2,12 +2,12 @@ import { lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/services/db'
-import type { RecordKind, Run, SessionType } from '@/services/db/types'
+import type { RecordKind, Run, Session, SessionType, StrengthActivityLog } from '@/services/db/types'
 import { fromISO, format } from '@/lib/dates'
 import { formatDistance, formatDuration, formatPace } from '@/lib/formatters'
 import { useUnits, useActiveGoal } from '@/app/hooks'
 import { SESSION_META } from '@/services/planEngine'
-import { RECORD_LABELS, RECORD_ORDER, predictRaces, BADGES_BY_ID } from '@/services/stats'
+import { RECORD_LABELS, RECORD_ORDER, predictRaces, BADGES_BY_ID, computeWeeklyStreak } from '@/services/stats'
 import { ScreenHeader, Card, StatNumber, SectionTitle, EmptyState } from '@/components/ui'
 import { feelEmoji } from '@/components/FeelPicker'
 
@@ -27,6 +27,12 @@ export function StatsScreen() {
   const records = useLiveQuery(() => db.records.toArray(), [])
   const achievements = useLiveQuery(() => db.achievements.toArray(), [])
 
+  const strengthSessions = useLiveQuery(
+    () => db.sessions.where('type').anyOf('strength', 'mobility').toArray(),
+    [],
+  )
+  const strengthLogs = useLiveQuery(() => db.strengthActivityLog.orderBy('date').reverse().toArray(), [])
+
   const matchedTypes = useLiveQuery(async () => {
     const map: Record<string, SessionType> = {}
     const runList = await db.runs.toArray()
@@ -43,6 +49,9 @@ export function StatsScreen() {
   const longest = (runs ?? []).reduce((m, r) => Math.max(m, r.distanceKm), 0)
 
   const grouped = groupByMonth(runs ?? [])
+
+  const strengthStreak = computeWeeklyStreak(strengthSessions ?? [])
+  const strengthHistory = mergeStrengthHistory(strengthSessions ?? [], strengthLogs ?? [])
 
   // Runs matched to an easy session drive the easy-pace trend.
   const easyRunIds = new Set(
@@ -166,6 +175,38 @@ export function StatsScreen() {
           </>
         )}
 
+        {strengthHistory.length > 0 && (
+          <>
+            <SectionTitle
+              action={
+                strengthStreak.current > 0 ? (
+                  <span className="text-xs text-accent-400 font-semibold">
+                    🔥 {strengthStreak.current} wk streak
+                  </span>
+                ) : undefined
+              }
+            >
+              Strength history
+            </SectionTitle>
+            <div className="flex flex-col gap-2 mb-2">
+              {strengthHistory.slice(0, 10).map((item) => (
+                <Card key={item.id} onClick={item.sessionId ? () => navigate(`/session/${item.sessionId}`) : undefined}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl">{item.icon}</span>
+                      <div>
+                        <div className="font-medium text-slate-100">{item.title}</div>
+                        <div className="text-xs text-slate-500">{format(fromISO(item.date), 'EEE, MMM d')}</div>
+                      </div>
+                    </div>
+                    <div className="text-right text-xs text-slate-400">{item.detail}</div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </>
+        )}
+
         <SectionTitle>Run history</SectionTitle>
         {totalRuns === 0 ? (
           <Card>
@@ -207,6 +248,40 @@ export function StatsScreen() {
       </div>
     </div>
   )
+}
+
+interface StrengthHistoryItem {
+  id: string
+  date: string
+  icon: string
+  title: string
+  detail: string
+  sessionId?: string
+}
+
+/** Completed scheduled strength/mobility sessions + manual logs, newest first. */
+function mergeStrengthHistory(
+  sessions: Session[],
+  logs: StrengthActivityLog[],
+): StrengthHistoryItem[] {
+  const fromSessions: StrengthHistoryItem[] = sessions
+    .filter((s) => s.status === 'completed')
+    .map((s) => ({
+      id: s.id,
+      date: s.date,
+      icon: SESSION_META[s.type].icon,
+      title: s.title,
+      detail: s.strengthLog?.perceivedEffort != null ? `Effort ${s.strengthLog.perceivedEffort}/5` : '',
+      sessionId: s.id,
+    }))
+  const fromLogs: StrengthHistoryItem[] = logs.map((l) => ({
+    id: l.id,
+    date: l.date,
+    icon: '🏋️',
+    title: l.label || 'Strength session',
+    detail: `${l.durationMinutes} min`,
+  }))
+  return [...fromSessions, ...fromLogs].sort((a, b) => (a.date < b.date ? 1 : -1))
 }
 
 function groupByMonth(runs: Run[]): [string, Run[]][] {

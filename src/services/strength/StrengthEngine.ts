@@ -1,5 +1,7 @@
 import type {
   RunInterference,
+  Session,
+  StrengthAdjustment,
   StrengthPreferences,
   StrengthSessionKind,
   WorkoutStep,
@@ -35,4 +37,11 @@ export interface ScheduleWeekResult {
  */
 export interface StrengthEngine {
   scheduleWeek(input: ScheduleWeekInput): ScheduleWeekResult
+  /**
+   * Rules-only adaptivity (spec §7). Looks at recent strength session history
+   * (skips + perceived effort) and returns a single suggested preference change,
+   * or null. `sessions` should be the strength/mobility sessions in reverse-
+   * chronological (or chronological) order — the engine sorts by date.
+   */
+  suggestAdjustment(sessions: Session[], prefs: StrengthPreferences): StrengthAdjustment | null
 }

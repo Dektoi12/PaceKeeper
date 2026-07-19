@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '@/services/db'
+import { db, getStrengthAdjustment, applyStrengthAdjustment, dismissStrengthAdjustment } from '@/services/db'
 import { SESSION_META } from '@/services/planEngine'
 import type { Session } from '@/services/db/types'
+import { useToast } from '@/components/Toast'
 import {
   weekDates,
   addDays,
@@ -118,6 +119,8 @@ function WeekView({
         </div>
       )}
 
+      {strength?.enabled && <AdaptivityPrompt />}
+
       <div className="flex flex-col gap-4 mt-2">
         {days.map((iso) => {
           const daySessions = byDay(iso)
@@ -136,6 +139,35 @@ function WeekView({
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+function AdaptivityPrompt() {
+  const toast = useToast()
+  const adjustment = useLiveQuery(() => getStrengthAdjustment(), [])
+  if (!adjustment) return null
+
+  async function accept() {
+    await applyStrengthAdjustment(adjustment!)
+    toast.show('Preferences updated', 'success')
+  }
+  async function dismiss() {
+    await dismissStrengthAdjustment(adjustment!.signature)
+  }
+
+  return (
+    <div className="mt-3 p-4 rounded-card border border-accent-500/40 bg-accent-500/10">
+      <div className="font-semibold text-slate-100 text-sm">{adjustment.title}</div>
+      <p className="text-xs text-slate-400 mt-1">{adjustment.detail}</p>
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <button className="btn-ghost text-sm py-2" onClick={dismiss}>
+          Not now
+        </button>
+        <button className="btn-primary text-sm py-2" onClick={accept}>
+          Yes, update
+        </button>
       </div>
     </div>
   )

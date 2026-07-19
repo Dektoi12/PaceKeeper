@@ -19,6 +19,7 @@ export function SessionCard({
   const meta = SESSION_META[session.type]
   const done = session.status === 'completed'
   const skipped = session.status === 'skipped'
+  const inProgress = session.status === 'inProgress'
   const exerciseCount = session.steps.filter((s) => s.kind === 'exercise').length
   const isStrengthLike = session.type === 'strength' || session.type === 'mobility'
 
@@ -29,6 +30,7 @@ export function SessionCard({
           <div className="flex items-center gap-2 mb-1">
             <SessionTypeBadge type={session.type} />
             {done && <span className="text-session-easy text-xs font-semibold">✓ Done</span>}
+            {inProgress && <span className="text-accent-400 text-xs font-semibold">● In progress</span>}
             {skipped && <span className="text-slate-500 text-xs">Skipped</span>}
           </div>
           <h3
