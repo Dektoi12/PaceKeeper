@@ -16,11 +16,11 @@ import type { StrengthSessionKind } from '@/services/db/types'
 const ALL_KINDS: StrengthSessionKind[] = ['legsAndCore', 'upperBody', 'fullBody', 'coreAndMobility']
 
 describe('library integrity', () => {
-  // 24 strength/mobility exercises plus the 10 run warm-up and cool-down moves.
-  it('ships exactly 34 exercises with unique ids', () => {
-    expect(STRENGTH_LIBRARY).toHaveLength(34)
+  // 47 strength exercises plus the 10 run warm-up and cool-down mobility moves.
+  it('ships exactly 57 exercises with unique ids', () => {
+    expect(STRENGTH_LIBRARY).toHaveLength(57)
     const ids = new Set(STRENGTH_LIBRARY.map((e) => e.id))
-    expect(ids.size).toBe(34)
+    expect(ids.size).toBe(57)
   })
 
   it('every non-mobility category has at least one bodyweight option', () => {

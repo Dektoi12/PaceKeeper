@@ -355,6 +355,7 @@ const EXPERIENCE_LEVELS: Experience[] = ['beginner', 'intermediate', 'advanced']
 function StrengthSettings() {
   const settings = useSettings()
   const toast = useToast()
+  const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
 
   const prefs: StrengthPreferences =
@@ -457,6 +458,19 @@ function StrengthSettings() {
           />
         </div>
       )}
+
+      <button
+        onClick={() => navigate('/exercises')}
+        className="flex items-center justify-between rounded-xl border border-ink-600 px-3.5 py-3 text-left active:bg-ink-700 transition-colors"
+      >
+        <span>
+          <span className="block text-sm text-slate-200 font-medium">Exercise library</span>
+          <span className="block text-xs text-slate-500 mt-0.5">
+            Browse every move with demos and cues.
+          </span>
+        </span>
+        <span className="text-slate-500 text-lg">›</span>
+      </button>
 
       <ManualStrengthLog />
     </Card>

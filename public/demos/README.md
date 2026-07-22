@@ -12,7 +12,7 @@ Two formats are supported, checked in this order:
 
 ## What ships today
 
-26 of the 34 exercises have two-frame photo demos from
+49 of the 57 exercises have two-frame photo demos from
 [free-exercise-db](https://github.com/yuhonas/free-exercise-db) — images by
 [Everkinetic](https://github.com/everkinetic/data), used under
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). They were

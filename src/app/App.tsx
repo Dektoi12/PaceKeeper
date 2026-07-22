@@ -17,6 +17,7 @@ import { RunDetailScreen } from '@/screens/Stats/RunDetailScreen'
 import { StrengthOnboardingScreen } from '@/screens/Strength/StrengthOnboardingScreen'
 import { StrengthPlayerScreen } from '@/screens/Strength/StrengthPlayerScreen'
 import { RoutinePlayerScreen } from '@/screens/Routine/RoutinePlayerScreen'
+import { ExerciseLibraryScreen } from '@/screens/Exercises/ExerciseLibraryScreen'
 
 export default function App() {
   const location = useLocation()
@@ -66,6 +67,7 @@ export default function App() {
           <Route path="/coach" element={<CoachScreen />} />
           <Route path="/settings" element={<SettingsScreen />} />
           <Route path="/strength/onboarding" element={<StrengthOnboardingScreen />} />
+          <Route path="/exercises" element={<ExerciseLibraryScreen />} />
           <Route path="/session/:id" element={<SessionDetailScreen />} />
           <Route path="/run/:id" element={<RunDetailScreen />} />
         </Route>
